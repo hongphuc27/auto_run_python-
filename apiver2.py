@@ -6,6 +6,8 @@ import time
 import logging
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from sqlalchemy import create_engine, text, types as satypes
+from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from google.cloud import bigquery
 import os
 
