@@ -10,5 +10,7 @@ google-cloud-bigquery
 google-auth
 gspread
 pandas
+pyarrow
+
 
 
