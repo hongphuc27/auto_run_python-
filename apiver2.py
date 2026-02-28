@@ -4,10 +4,10 @@ import urllib
 from datetime import datetime, timedelta
 import time
 import logging
-from sqlalchemy import create_engine, text, types as satypes
-from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from google.cloud import bigquery
+import os
 
 # ======================================================
 # LOGGING
@@ -19,24 +19,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ======================================================
-# SQL SERVER CONFIG
+# BIGQUERY CONFIG
 # ======================================================
-SERVER = "THOMTRAN"
-DATABASE = "rhysman"
-TABLE_NAME = "dbo.fact_engagement"
-params = (
-    "DRIVER={ODBC Driver 17 for SQL Server};"
-    f"SERVER={SERVER};"
-    f"DATABASE={DATABASE};"
-    "Trusted_Connection=yes;"
-    "Encrypt=yes;"
-    "TrustServerCertificate=yes;"
-)
+from google.cloud import bigquery
+from google.oauth2 import service_account
 
-engine = create_engine(
-    "mssql+pyodbc:///?odbc_connect=" + urllib.parse.quote_plus(params),
-    fast_executemany=True
-)
+PROJECT_ID = "rhysman-data-warehouse-488306"
+DATASET_ID = "rhysman"
+TABLE_ID = "fact_engagement"
+FULL_TABLE_ID = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
+
+bq_client = bigquery.Client(project=PROJECT_ID)
 
 # ======================================================
 # API CONFIG
@@ -76,12 +69,12 @@ PAGE_IDS = [
 # ======================================================
 # DATE RANGE (BACKFILL)
 # ======================================================
-TODAY = datetime.now().strftime("%Y-%m-%d")
-START_DATE = TODAY
-END_DATE = TODAY
+# TODAY = datetime.now().strftime("%Y-%m-%d")
+# START_DATE = TODAY
+# END_DATE = TODAY
 
-# END_DATE = datetime.now().strftime("%Y-%m-%d")
-# START_DATE = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+END_DATE = datetime.now().strftime("%Y-%m-%d")
+START_DATE = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
 
 
 
@@ -243,25 +236,50 @@ def main():
         )
         df_final["page_id"] = "ALL"
 
-        with engine.begin() as conn:
-            logger.info(f"🧹 Delete data of {date}")
-            conn.execute(
-                text(f"""
-                    DELETE FROM {TABLE_NAME}
-                    WHERE ngay = :date
-                """),
-                {"date": date}
-            )
+        # ===== FIX DATA TYPE BEFORE LOAD =====
+        df_final["ngay"] = pd.to_datetime(df_final["ngay"]).dt.date
+        df_final["ma_nhan_vien"] = df_final["ma_nhan_vien"].astype(str)
 
-            logger.info(f"⬆️ Insert {len(df_final)} rows for {date}")
-            df_final.to_sql(
-                name=TABLE_NAME.split(".")[1],
-                schema=TABLE_NAME.split(".")[0],
-                con=conn,
-                if_exists="append",
-                index=False,
-                dtype=dtype_map
+        int_cols = [
+            "khach_moi_da_tra_loi",
+            "so_tin_nhan",
+            "so_comment",
+            "tong_tuong_tac",
+            "so_don_hang",
+            "so_don_hang_cu"
+        ]
+
+        for col in int_cols:
+            df_final[col] = df_final[col].fillna(0).astype("int64")
+
+        # ===== DELETE DATA OF DATE =====
+        logger.info(f"🧹 Delete data of {date} in BigQuery")
+
+        delete_query = f"""
+        DELETE FROM `{FULL_TABLE_ID}`
+        WHERE ngay = @date
+        """
+
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("date", "DATE", date)
+            ]
+        )
+
+        bq_client.query(delete_query, job_config=job_config).result()
+
+        # ===== INSERT DATA =====
+        logger.info(f"⬆️ Insert {len(df_final)} rows for {date} into BigQuery")
+
+        load_job = bq_client.load_table_from_dataframe(
+            df_final,
+            FULL_TABLE_ID,
+            job_config=bigquery.LoadJobConfig(
+                write_disposition="WRITE_APPEND"
             )
+        )
+
+        load_job.result()
 
     logger.info("✅ BACKFILL + DAILY SNAPSHOT DONE")
 
@@ -270,3 +288,4 @@ def main():
 # ======================================================
 if __name__ == "__main__":
     main()
+    
