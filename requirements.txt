@@ -6,3 +6,9 @@ gspread
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
+google-cloud-bigquery
+google-auth
+gspread
+pandas
+
+
