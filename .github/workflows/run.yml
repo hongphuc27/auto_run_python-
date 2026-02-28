@@ -30,3 +30,4 @@ jobs:
       
       - name: Run Python
         run: python facebook_performance_bg_automate.py
+             python apiver2.py
