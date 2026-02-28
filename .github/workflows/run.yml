@@ -33,7 +33,9 @@ jobs:
       - name: Create Google credential file
         run: |
           echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > google_key.json
-
+      
+      - name: Set Google Credentials
+        run: echo "GOOGLE_APPLICATION_CREDENTIALS=google_key.json" >> $GITHUB_ENV
+      
       - name: Run Python
-        run: |
-          python keodata_facebook_performance.py
+        run: python facebook_performance_bg_automate.py
