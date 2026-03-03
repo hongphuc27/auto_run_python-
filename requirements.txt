@@ -11,6 +11,10 @@ google-auth
 gspread
 pandas
 pyarrow
+selenium
+webdriver-manager
+
+
 
 
 
