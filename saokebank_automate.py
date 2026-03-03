@@ -258,7 +258,7 @@ for t in transactions:
 # ================== INSERT TO BIGQUERY ==================
 table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
 
-gcp_key = json.loads(os.getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+gcp_key = json.loads(os.getenv("GCP_SERVICE_ACCOUNT"))
 
 credentials = service_account.Credentials.from_service_account_info(gcp_key)
 
@@ -288,5 +288,6 @@ load_job = bq_client.load_table_from_json(
 )
 
 load_job.result()
+
 
 print("Data inserted successfully.")
