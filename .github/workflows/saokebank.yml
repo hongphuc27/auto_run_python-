@@ -2,7 +2,7 @@ name: Auto Saokebank
 
 on:
   schedule:
-    - cron: '0 1 * * *'   # 08:00 sáng Việt Nam
+    - cron: '*/5 * * * *' 
   workflow_dispatch:
 
 jobs:
