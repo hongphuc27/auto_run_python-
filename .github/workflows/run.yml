@@ -2,7 +2,7 @@ name: Auto Run Python
 
 on:
   schedule:
-    - cron: "35 15 * * *"
+    - cron: "15 15 * * *"
   workflow_dispatch:
 
 jobs:
