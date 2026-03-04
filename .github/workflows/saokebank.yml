@@ -2,7 +2,7 @@ name: Auto Saokebank
 
 on:
   schedule:
-    - cron: '*/5 * * * *' 
+    - cron: "*/10 * * * *"   # chạy mỗi 10 phút để test
   workflow_dispatch:
 
 jobs:
