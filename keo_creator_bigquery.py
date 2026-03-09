@@ -18,7 +18,7 @@ DATASET_ID = "rhysman"
 TABLE_ID = "fact_creator_tiktok"
 
 
-gcp_key = json.loads(os.getenv("GCP_SERVICE_ACCOUNT"))
+gcp_key = json.loads(os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON"))
 credentials = service_account.Credentials.from_service_account_info(gcp_key)
 
 client = bigquery.Client(
@@ -273,6 +273,7 @@ def run():
 # =====================================================
 if __name__ == "__main__":
     run()
+
 
 
 
