@@ -5,6 +5,7 @@ from google.oauth2 import service_account
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta
 import os
+import json
 
 
 # =========================
@@ -244,6 +245,7 @@ load_job = bq_client.load_table_from_dataframe(
 )
 
 load_job.result()
+
 
 
 print("✅ Google Sheet → BigQuery SUCCESS")
