@@ -1,4 +1,4 @@
-name: Auto Run Python
+name: Kéo dữ liệu sale FB (Thảo)
 
 on:
   schedule:
