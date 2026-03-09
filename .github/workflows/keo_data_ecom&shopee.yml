@@ -30,23 +30,23 @@ jobs:
       # 4️⃣ Run Creator TikTok ETL
       - name: Run Creator TikTok ETL
         env:
-          GCP_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python keo_creator_bigquery.py
 
       # 5️⃣ Run Doitac TikTok ETL
       - name: Run Doitac TikTok ETL
         env:
-          GCP_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python keo_doitaclk_bigquery.py
 
       # 6️⃣ Run Salework TikTok ETL
       - name: Run Salework TikTok ETL
         env:
-          GCP_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python dtsaleworkbigquerytiktok.py
 
       # 7️⃣ Run Salework Shopee ETL
       - name: Run Salework Shopee ETL
         env:
-          GCP_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python dtsaleworkbigqueryshopee.py
