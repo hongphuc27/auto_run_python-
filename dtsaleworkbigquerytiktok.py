@@ -33,7 +33,7 @@ DATE_TO = now_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 #     .strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
-PAGE_SIZE = 500
+PAGE_SIZE = 550
 
 
 HEADERS = {
@@ -178,6 +178,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
