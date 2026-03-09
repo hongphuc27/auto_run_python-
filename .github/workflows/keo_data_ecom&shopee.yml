@@ -1,4 +1,4 @@
-name: Run ETL BigQuery
+name: Kéo dữ liệu Ecom & shopee
 
 on:
   schedule:
