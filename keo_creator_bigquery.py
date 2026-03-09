@@ -260,7 +260,7 @@ def run():
 
     job = client.load_table_from_dataframe(
         df,
-        table_id,
+        table_ref,
         job_config=job_config
     )
 
@@ -273,6 +273,7 @@ def run():
 # =====================================================
 if __name__ == "__main__":
     run()
+
 
 
 
