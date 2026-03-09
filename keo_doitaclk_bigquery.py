@@ -7,6 +7,8 @@ import os
 from decimal import Decimal, InvalidOperation
 from google.oauth2 import service_account
 from google.cloud import bigquery
+import json
+
 
 # =====================================================
 # BIGQUERY  CONFIG (THEO CỦA BẠN)
@@ -305,5 +307,6 @@ def run():
 # =====================================================
 if __name__ == "__main__":
     run()
+
 
 
