@@ -17,7 +17,7 @@ PROJECT_ID = "rhysman-data-warehouse-488306"   # 🔥 thay bằng project GCP c�
 DATASET_ID = "rhysman"
 TABLE_ID = "fact_creator_tiktok"
 
-table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
+
 gcp_key = json.loads(os.getenv("GCP_SERVICE_ACCOUNT"))
 credentials = service_account.Credentials.from_service_account_info(gcp_key)
 
@@ -234,9 +234,11 @@ def run():
     # drop row lỗi
     df = df.dropna(subset=["main_order_id"])
         
-    df = df.drop_duplicates(
-    subset=["main_order_id", "promotion_position_type", "cos_ratio", "estimated_cos_fee", "shop_ads_commission_ratio", "estimated_shop_ads_commission"]
-    )
+    # df = df.drop_duplicates(
+    # subset=["main_order_id", "promotion_position_type", "cos_ratio", "estimated_cos_fee", "shop_ads_commission_ratio", "estimated_shop_ads_commission"]
+    # )
+
+    table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
 
     # # ==============================
     # # DELETE DATA TODAY + YESTERDAY
@@ -271,6 +273,7 @@ def run():
 # =====================================================
 if __name__ == "__main__":
     run()
+
 
 
 
