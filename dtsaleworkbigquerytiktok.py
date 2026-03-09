@@ -70,7 +70,7 @@ PROJECT_ID = "rhysman-data-warehouse-488306"   # 🔥 thay bằng project GCP c�
 DATASET_ID = "rhysman"
 TABLE_ID = "fact_orders_salework_tiktok"
 
-table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
+
 gcp_key = json.loads(os.getenv("GCP_SERVICE_ACCOUNT"))
 credentials = service_account.Credentials.from_service_account_info(gcp_key)
 
@@ -78,6 +78,7 @@ client = bigquery.Client(
     credentials=credentials,
     project=PROJECT_ID
 )
+table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
 
 
 # ==============================
@@ -177,6 +178,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
