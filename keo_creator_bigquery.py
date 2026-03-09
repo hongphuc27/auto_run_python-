@@ -14,9 +14,9 @@ PROJECT_ID = "rhysman-data-warehouse-488306"   # 🔥 thay bằng project GCP c�
 DATASET_ID = "rhysman"
 TABLE_ID = "fact_creator_tiktok"
 
-credentials = service_account.Credentials.from_service_account_file(
-    r"E:\hongphuc\Source code\code kéo dữ liệu SQL Sever (Thảo)\rhysman-data-warehouse-488306-8db2b940e56a.json"
-)
+table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
+gcp_key = json.loads(os.getenv("GCP_SERVICE_ACCOUNT"))
+credentials = service_account.Credentials.from_service_account_info(gcp_key)
 
 client = bigquery.Client(
     credentials=credentials,
@@ -235,8 +235,6 @@ def run():
     subset=["main_order_id", "promotion_position_type", "cos_ratio", "estimated_cos_fee", "shop_ads_commission_ratio", "estimated_shop_ads_commission"]
     )
 
-    table_id = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
-
     # # ==============================
     # # DELETE DATA TODAY + YESTERDAY
     # # ==============================
@@ -270,3 +268,4 @@ def run():
 # =====================================================
 if __name__ == "__main__":
     run()
+
