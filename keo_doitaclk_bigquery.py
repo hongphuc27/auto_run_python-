@@ -279,7 +279,7 @@ def run():
     # # DELETE DATA TODAY + YESTERDAY
     # # ==============================
     # delete_query = f"""
-    # DELETE FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}`
+    # DELETE FROM `{table_ref}`
     # WHERE DATE(create_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
     # """
 
@@ -298,7 +298,7 @@ def run():
 
     job = client.load_table_from_dataframe(
         df,
-        table_id,
+        table_ref,
         job_config=job_config
     )
 
@@ -309,6 +309,7 @@ def run():
 # =====================================================
 if __name__ == "__main__":
     run()
+
 
 
 
