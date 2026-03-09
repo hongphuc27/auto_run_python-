@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from google.oauth2 import service_account
 from google.cloud import bigquery
 import os
+import json
 
 
 
@@ -176,5 +177,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
