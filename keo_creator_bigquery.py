@@ -3,6 +3,7 @@ import urllib.parse
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 import time
+import os
 from decimal import Decimal, InvalidOperation
 from google.oauth2 import service_account
 from google.cloud import bigquery
@@ -268,4 +269,5 @@ def run():
 # =====================================================
 if __name__ == "__main__":
     run()
+
 
