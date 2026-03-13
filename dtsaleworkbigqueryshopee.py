@@ -160,6 +160,7 @@ def main():
 
     # Convert datatype
     df["createdAt"] = pd.to_datetime(df["createdAt"], errors="coerce", utc=True)
+    df["createdAt"] = df["createdAt"].dt.tz_convert("Asia/Ho_Chi_Minh")
     df["price"] = pd.to_numeric(df["price"], errors="coerce")
 
     print("\n📊 Columns:", list(df.columns))
@@ -197,6 +198,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
