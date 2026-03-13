@@ -44,15 +44,15 @@ HEADERS = {
 }
 
 
-KEEP_COLUMNS = [
-    "_id",
-    "code",
-    "shopeeShopId",
-    "city",
-    "state",
-    "createdAt",
-    "price"
-]
+# KEEP_COLUMNS = [
+#     "_id",
+#     "code",
+#     "shopeeShopId",
+#     "city",
+#     "state",
+#     "createdAt",
+#     "price"
+# ]
 
 
 # ==============================
@@ -166,7 +166,7 @@ def main():
     print("🧾 Rows:", len(df))
 
     # DELETE 35 ngày gần nhất
-    print("\n🧹 Deleting last 20 days...")
+    print("\n🧹 Deleting last 35 days...")
 
     delete_query = f"""
         DELETE FROM `{table_ref}`
@@ -197,6 +197,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
