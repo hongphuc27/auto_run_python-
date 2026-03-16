@@ -21,27 +21,16 @@ WORKSHEET_NAME = "PosSheets(lili)"
 
 TABLE_FULL_ID = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
 
-# =========================
-# AUTHENTICATION
-# =========================
-credentials = service_account.Credentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE
-)
+# BigQuery client
+bq_client = bigquery.Client(project=PROJECT_ID)
 
-bq_client = bigquery.Client(
-    credentials=credentials,
-    project=PROJECT_ID
-)
-
-# =========================
-# GOOGLE SHEET → DATAFRAME
-# =========================
+# Google Sheet auth
 scopes = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
 ]
 
 sheet_creds = Credentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE,
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"],
     scopes=scopes
 )
 
