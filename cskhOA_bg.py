@@ -10,7 +10,7 @@ from decimal import Decimal, InvalidOperation
 # =========================
 # CONFIG
 # =========================
-SERVICE_ACCOUNT_FILE = r"E:\hongphuc\Source code\code kéo dữ liệu SQL Sever (Thảo)\rhysman-data-warehouse-488306-8db2b940e56a.json"
+# SERVICE_ACCOUNT_FILE = r"E:\hongphuc\Source code\code kéo dữ liệu SQL Sever (Thảo)\rhysman-data-warehouse-488306-8db2b940e56a.json"
 
 PROJECT_ID = "rhysman-data-warehouse-488306"
 DATASET_ID = "rhysman"
