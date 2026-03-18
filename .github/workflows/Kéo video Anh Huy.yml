@@ -2,7 +2,7 @@ name: Kéo dữ liệu video a huy
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # chạy mỗi 10 phút
+    - cron: "0 */6 * * *"
   workflow_dispatch:
 
 jobs:
