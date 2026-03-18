@@ -13,7 +13,7 @@ pandas
 pyarrow
 selenium
 webdriver-manager
-Zoneinfo 
+
 
 
 
