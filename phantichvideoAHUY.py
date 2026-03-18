@@ -7,6 +7,7 @@ from google.cloud import bigquery
 import json
 from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta
+import os
 
 
 # =====================================================
