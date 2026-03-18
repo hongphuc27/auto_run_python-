@@ -257,7 +257,7 @@ def delete_and_insert_by_date(run_date, df_final):
     print(f"\n🧹 Delete data of {run_date} in BigQuery")
 
     delete_query = f"""
-    DELETE FROM `{FULL_TABLE_ID}`
+    DELETE FROM `{table_ref}`
     WHERE report_date = @date
     """
 
@@ -277,7 +277,7 @@ def delete_and_insert_by_date(run_date, df_final):
 
     load_job = client.load_table_from_dataframe(
         df_final,
-        FULL_TABLE_ID,
+        table_ref,
         job_config=bigquery.LoadJobConfig(
             write_disposition="WRITE_APPEND",
             schema=[
