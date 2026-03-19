@@ -2,7 +2,7 @@ name: Kéo dữ liệu tiktok
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # chạy mỗi 10 phút
+    - cron: "*/59 * * * *"   # chạy mỗi 10 phút
   workflow_dispatch:
 
 jobs:
