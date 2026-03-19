@@ -4,6 +4,9 @@ import time
 from datetime import datetime, timedelta, timezone
 from google.oauth2 import service_account
 from google.cloud import bigquery
+import os
+import json
+
 
 
 
