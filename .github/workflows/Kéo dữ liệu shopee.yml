@@ -32,3 +32,9 @@ jobs:
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python dtsaleworkbigqueryshopee.py
+
+      # 7️⃣ Run Cost Salework Shopee ETL
+      - name: Run Cost Salework Shopee ETL
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python ads_shopee.py
