@@ -143,13 +143,29 @@ def find_rows(obj):
 # =====================================================
 # MAIN
 # =====================================================
-def extract_data_by_date(run_date):
+def generate_date_list(start_date, end_date):
+    start = datetime.strptime(start_date, "%Y-%m-%d")
+    end = datetime.strptime(end_date, "%Y-%m-%d")
+
+    dates = []
+    current = start
+    while current <= end:
+        dates.append(current.strftime("%Y-%m-%d"))
+        current += timedelta(days=1)
+
+    return dates
+
+
+def extract_data_by_date(run_date_str):
     all_rows = []
 
-    report_date = run_date.strftime("%Y-%m-%d")
-    next_date = (run_date + timedelta(days=3)).strftime("%Y-%m-%d")
+    report_date = run_date_str
+    next_date = (
+        datetime.strptime(run_date_str, "%Y-%m-%d") + timedelta(days=1)
+    ).strftime("%Y-%m-%d")
 
     print(f"\n===== Processing date: {report_date} =====")
+    print(f"Fetching API range: from {report_date} to {next_date}")
 
     page = 0
     empty_retry = 0
@@ -185,7 +201,7 @@ def extract_data_by_date(run_date):
 
         rows = find_rows(data)
 
-        print(f"Date {report_date} | Page {page} | Rows: {len(rows)}")
+        print(f"Date {report_date} | Range {report_date} -> {next_date} | Page {page} | Rows: {len(rows)}")
 
         if not rows:
             empty_retry += 1
@@ -254,8 +270,8 @@ def extract_data_by_date(run_date):
     return df
 
 
-def delete_and_insert_by_date(run_date, df_final):
-    print(f"\n🧹 Delete data of {run_date} in BigQuery")
+def delete_and_insert_by_date(run_date_str, df_final):
+    print(f"\n🧹 Delete data of {run_date_str} in BigQuery")
 
     delete_query = f"""
     DELETE FROM `{table_ref}`
@@ -264,17 +280,17 @@ def delete_and_insert_by_date(run_date, df_final):
 
     job_config = bigquery.QueryJobConfig(
         query_parameters=[
-            bigquery.ScalarQueryParameter("date", "DATE", run_date)
+            bigquery.ScalarQueryParameter("date", "DATE", run_date_str)
         ]
     )
 
     client.query(delete_query, job_config=job_config).result()
 
     if df_final.empty:
-        print(f"Không có dữ liệu để insert cho {run_date}")
+        print(f"Không có dữ liệu để insert cho {run_date_str}")
         return
 
-    print(f"⬆️ Insert {len(df_final)} rows for {run_date} into BigQuery")
+    print(f"⬆️ Insert {len(df_final)} rows for {run_date_str} into BigQuery")
 
     load_job = client.load_table_from_dataframe(
         df_final,
@@ -293,23 +309,32 @@ def delete_and_insert_by_date(run_date, df_final):
     )
 
     load_job.result()
-    print(f"✅ Loaded {len(df_final)} rows for {run_date}")
+    print(f"✅ Loaded {len(df_final)} rows for {run_date_str}")
 
 
 def main():
     tz = ZoneInfo("Asia/Bangkok")
     today = datetime.now(tz).date()
-    yesterday = today - timedelta(days=3)
 
-    target_dates = [yesterday, today]
+    # 3 ngày gần nhất: hôm kia, hôm qua, hôm nay
+    end_date = today.strftime("%Y-%m-%d")
+    start_date = (today - timedelta(days=3)).strftime("%Y-%m-%d")
 
-    for run_date in target_dates:
-        df_final = extract_data_by_date(run_date)
-        delete_and_insert_by_date(run_date, df_final)
+    print("🚀 START JOB")
+    print(f"📅 DATE RANGE: FROM {start_date} TO {end_date}")
 
-    print("\n✅ DONE: refreshed yesterday + today")
+    target_dates = generate_date_list(start_date, end_date)
+
+    print(f"📅 TOTAL DAYS: {len(target_dates)}")
+    print(f"📋 DATE LIST: {target_dates}")
+
+    for run_date_str in target_dates:
+        df_final = extract_data_by_date(run_date_str)
+        delete_and_insert_by_date(run_date_str, df_final)
+
+    print("\n✅ DONE: refreshed last 3 days")
+
 
 if __name__ == "__main__":
     main()
-
 
