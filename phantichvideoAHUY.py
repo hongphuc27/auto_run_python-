@@ -147,7 +147,7 @@ def extract_data_by_date(run_date):
     all_rows = []
 
     report_date = run_date.strftime("%Y-%m-%d")
-    next_date = (run_date + timedelta(days=1)).strftime("%Y-%m-%d")
+    next_date = (run_date + timedelta(days=3)).strftime("%Y-%m-%d")
 
     print(f"\n===== Processing date: {report_date} =====")
 
@@ -299,7 +299,7 @@ def delete_and_insert_by_date(run_date, df_final):
 def main():
     tz = ZoneInfo("Asia/Bangkok")
     today = datetime.now(tz).date()
-    yesterday = today - timedelta(days=1)
+    yesterday = today - timedelta(days=3)
 
     target_dates = [yesterday, today]
 
