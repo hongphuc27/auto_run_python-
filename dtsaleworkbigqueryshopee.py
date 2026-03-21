@@ -22,7 +22,7 @@ CHANNEL = "Shopee"
 
 now_utc = datetime.now(timezone.utc)
 
-DATE_FROM = (now_utc - timedelta(days=50)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+DATE_FROM = (now_utc - timedelta(days=35)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 DATE_TO = now_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 # DATE_FROM = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc) \
@@ -171,7 +171,7 @@ def main():
 
     delete_query = f"""
         DELETE FROM `{table_ref}`
-        WHERE createdAt >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 50 DAY)
+        WHERE createdAt >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 35 DAY)
     """
 
     client.query(delete_query).result()
