@@ -28,7 +28,13 @@ jobs:
           pip install pandas requests google-cloud-bigquery google-auth pyarrow
 
       # 4️⃣ Run Salework TikTok ETL
-      - name: Run Salework TikTok ETL
+      - name: Run Aff video
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python phantichvideoAHUY.py
+
+              # 4️⃣ Run Salework TikTok ETL
+      - name: Run Seller Video
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python detailvideoahuyV2.py
