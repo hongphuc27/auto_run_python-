@@ -82,17 +82,13 @@ PROJECT_ID = "rhysman-data-warehouse-488306"
 DATASET_ID = "rhysman"
 TABLE_ID = "fact_detail_video_ahuy"
 
-
-
-credentials = service_account.Credentials.from_service_account_file(
-    r"E:\hongphuc\Source code\code kéo dữ liệu SQL Sever (Thảo)\rhysman-data-warehouse-488306-8db2b940e56a.json"
-)
+gcp_key = json.loads(os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON"))
+credentials = service_account.Credentials.from_service_account_info(gcp_key)
 
 client = bigquery.Client(
     credentials=credentials,
     project=PROJECT_ID
 )
-
 table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
 
 HEADERS = {
