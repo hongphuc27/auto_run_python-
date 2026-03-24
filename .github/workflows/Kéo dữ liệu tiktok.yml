@@ -32,5 +32,11 @@ jobs:
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python dtsaleworkbigquerytiktok.py
+        
+      # 4️⃣ Run Cost TikTok
+      - name: Run Cost TikTok
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python keocptiktok.py
 
 
