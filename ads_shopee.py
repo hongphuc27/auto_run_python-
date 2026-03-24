@@ -207,20 +207,26 @@ def get_token_from_playwright(timeout_ms: int = PLAYWRIGHT_TIMEOUT_MS) -> str:
             try:
                 url = request.url
         
-                # ❗ chỉ bắt đúng API finance
                 if "saleExpense" not in url:
                     return
         
                 headers = request.all_headers()
                 auth = headers.get("authorization")
         
-                if auth and auth.lower().startswith("bearer "):
-                    token = auth[7:].strip()
+                if not auth or not auth.lower().startswith("bearer "):
+                    return
         
-                    print("✅ FOUND TOKEN:", url)
-                    print("DOT COUNT:", token.count("."))
+                token = auth[7:].strip()
         
+                print("✅ FOUND TOKEN:", url)
+                print("DOT COUNT:", token.count("."))
+        
+                # Chỉ nhận JWT thật
+                if token.count(".") == 2 and len(token) > 100:
                     token_holder["token"] = token
+                    print("✅ JWT hợp lệ, sẽ dùng token này")
+                else:
+                    print("❌ Bỏ qua token rác:", token[:30] + "..." if token else "EMPTY")
         
             except Exception as e:
                 print("handle_request error:", e)
