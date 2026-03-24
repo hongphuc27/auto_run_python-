@@ -279,8 +279,10 @@ def load_or_create_session() -> Dict[str, Any]:
     try:
         print("🔄 Ưu tiên lấy session mới từ Playwright...")
         session_data = get_session_from_playwright()
+        print("DEBUG session_data:", session_data)
+        print("DEBUG cookie truthy:", bool(session_data.get("cookie")))
 
-        if session_data.get("cookie") and session_data.get("companycode"):
+        if session_data.get("cookie"):
             return session_data
 
         raise RuntimeError("Session lấy từ Playwright chưa đủ dữ liệu.")
@@ -288,7 +290,8 @@ def load_or_create_session() -> Dict[str, Any]:
         print("⚠️ Playwright lấy session lỗi:", e)
 
     cached = load_session()
-    if cached and cached.get("cookie") and cached.get("companycode"):
+    print("DEBUG cached session:", cached)
+    if cached and cached.get("cookie"):
         print("✅ Dùng session từ file")
         return cached
 
