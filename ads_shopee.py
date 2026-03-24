@@ -101,29 +101,14 @@ PROJECT_ID = os.getenv("GCP_PROJECT_ID", "rhysman-data-warehouse-488306")
 DATASET_ID = os.getenv("BQ_DATASET_ID", "rhysman")
 TABLE_ID = os.getenv("BQ_TABLE_ID", "fact_ads_shopee")
 
+gcp_key = json.loads(os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON"))
+credentials = service_account.Credentials.from_service_account_info(gcp_key)
+
+client = bigquery.Client(
+    credentials=credentials,
+    project=PROJECT_ID
+)
 table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
-
-
-def build_bigquery_client():
-    """
-    Ưu tiên:
-    1) GOOGLE_SERVICE_ACCOUNT_JSON (secret)
-    2) GOOGLE_APPLICATION_CREDENTIALS (nếu local tự set)
-    """
-    sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
-
-    if sa_json:
-        credentials = service_account.Credentials.from_service_account_info(
-            json.loads(sa_json)
-        )
-        return bigquery.Client(credentials=credentials, project=PROJECT_ID)
-
-    # fallback nếu local có file credentials chuẩn của Google
-    return bigquery.Client(project=PROJECT_ID)
-
-
-bq_client = build_bigquery_client()
-
 
 # ==============================
 # BOOTSTRAP RUNTIME FILES
