@@ -308,7 +308,6 @@ def build_request_headers(session_data: Dict[str, Any]) -> Dict[str, str]:
         "platform": "web",
         "priority": "u=1, i",
         "referer": "https://finance.salework.net/adsExpenseTransaction",
-        "companycode": session_data["companycode"],
         "cookie": session_data["cookie"],
         "user-agent": (
             "Mozilla/5.0 (X11; Linux x86_64) "
@@ -319,6 +318,9 @@ def build_request_headers(session_data: Dict[str, Any]) -> Dict[str, str]:
 
     if session_data.get("authorization"):
         headers["authorization"] = session_data["authorization"]
+
+    if session_data.get("companycode"):
+        headers["companycode"] = session_data["companycode"]
 
     return headers
 
