@@ -1,4 +1,4 @@
-name: Kéo dữ liệu Shopee
+name: Kéo dữ liệu Shopee test
 
 on:
   schedule:
