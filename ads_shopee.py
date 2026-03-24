@@ -24,7 +24,7 @@ CHANNEL = os.getenv("SALEWORK_CHANNEL", "Shopee")
 PAGE_SIZE = int(os.getenv("SALEWORK_PAGE_SIZE", "500"))
 
 # Timeout Playwright
-PLAYWRIGHT_TIMEOUT_MS = int(os.getenv("PLAYWRIGHT_TIMEOUT_MS", "10000"))
+PLAYWRIGHT_TIMEOUT_MS = int(os.getenv("PLAYWRIGHT_TIMEOUT_MS", "30000"))
 
 # File runtime trong GitHub Actions / local
 STATE_FILE = Path("salework_state.json")
