@@ -307,6 +307,10 @@ class SaleworkClient:
         self.access_token = new_token
         self._apply_auth_header()
         print("✅ Đã cập nhật access token mới")
+        payload = decode_jwt_payload(self.access_token)
+        print("TOKEN USER:", payload.get("user_data", {}).get("username"))
+        print("TOKEN COMPANY:", payload.get("user_data", {}).get("company", {}))
+        print("TOKEN EXP:", payload.get("exp"))
 
     def ensure_valid_token(self):
         if is_token_expiring_soon(self.access_token, buffer_seconds=120):
@@ -347,12 +351,16 @@ def fetch_orders(sw_client: SaleworkClient):
         print(f"📥 Fetch page {page}")
 
         response = sw_client.post(BASE_URL, payload, timeout=30)
-        resp = response.json()
 
+        print("STATUS:", response.status_code)
+        print("RESPONSE TEXT:", response.text[:5000])
+        print("PAYLOAD:", payload)
+        
+        resp = response.json()
         payload_data = resp.get("data", {})
         items = payload_data.get("tableData", [])
         total = payload_data.get("total", total)
-
+        
         print(f"items len: {len(items)} | total: {total}")
 
         if not items:
