@@ -72,7 +72,7 @@ def build_date_range():
     now_vn = now_utc + timedelta(hours=7)
 
     today_vn = now_vn.date()
-    start_day_vn = today_vn - timedelta(days=7)
+    start_day_vn = today_vn - timedelta(days=1)
 
     date_from = datetime(
         start_day_vn.year, start_day_vn.month, start_day_vn.day,
@@ -408,7 +408,7 @@ def delete_recent_rows():
     print("\n🧹 Deleting last 7 days...")
     delete_query = f"""
         DELETE FROM `{table_ref}`
-        WHERE date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+        WHERE date >= DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
     """
     bq_client.query(delete_query).result()
     print("✅ Delete done")
