@@ -36,7 +36,6 @@ STATIC_COOKIE = os.getenv("SALEWORK_STATIC_COOKIE", "").strip()
 # Nếu app chỉ sinh Bearer khi vào màn cụ thể thì thêm URL ở đây.
 # Có thể set từ secret/env bằng JSON array hoặc comma-separated string.
 default_trigger_urls = [
-    "https://finance.salework.net/",
     "https://finance.salework.net/adsExpenseTransaction"
 ]
 trigger_urls_env = os.getenv("TOKEN_TRIGGER_URLS", "").strip()
@@ -206,90 +205,103 @@ def get_token_from_playwright(timeout_ms: int = PLAYWRIGHT_TIMEOUT_MS) -> str:
         def handle_request(request):
             try:
                 url = request.url
-        
-                if "saleExpense" not in url:
+
+                # Chỉ bắt đúng endpoint có Bearer bạn đã thấy trong F12
+                if "getAdsExpenseTransactionsByDays" not in url:
                     return
-        
+
                 headers = request.all_headers()
                 auth = headers.get("authorization")
-        
-                if not auth or not auth.lower().startswith("bearer "):
+
+                if not auth:
+                    print("❌ Không có authorization ở URL:", url)
                     return
-        
+
+                print("✅ Authorization header found")
+
+                if not auth.lower().startswith("bearer "):
+                    print("❌ Authorization không phải Bearer")
+                    return
+
                 token = auth[7:].strip()
-        
-                print("✅ FOUND TOKEN:", url)
-                print("DOT COUNT:", token.count("."))
-        
-                # Chỉ nhận JWT thật
-                if token.count(".") == 2 and len(token) > 100:
-                    token_holder["token"] = token
-                    print("✅ JWT hợp lệ, sẽ dùng token này")
-                else:
-                    print("❌ Bỏ qua token rác:", token[:30] + "..." if token else "EMPTY")
-        
+
+                if not token:
+                    print("❌ Bearer rỗng")
+                    return
+
+                token_holder["token"] = token
+                print("✅ TOKEN ĐÃ BẮT ĐƯỢC")
+
             except Exception as e:
                 print("handle_request error:", e)
 
+        # Gắn listener trước khi goto
         page.on("request", handle_request)
 
-        for url in TOKEN_TRIGGER_URLS:
+        try:
+            for url in TOKEN_TRIGGER_URLS:
+                try:
+                    print(f"🔄 Mở URL trigger: {url}")
+                    page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                    page.wait_for_timeout(3000)
+
+                    start = time.time()
+                    while time.time() - start < (timeout_ms / 1000):
+                        if token_holder["token"]:
+                            context.storage_state(path=str(STATE_FILE))
+                            save_token(token_holder["token"])
+                            return token_holder["token"]
+                        page.wait_for_timeout(500)
+
+                except PlaywrightTimeoutError:
+                    print(f"⚠️ Timeout khi mở: {url}")
+                    continue
+                except Exception as e:
+                    print(f"⚠️ Lỗi khi mở {url}: {e}")
+                    continue
+
+            # Fallback chờ thêm nếu request bắn chậm
+            print("⏳ Chưa bắt được token, chờ thêm...")
+            start = time.time()
+            while time.time() - start < max(60, timeout_ms / 1000):
+                if token_holder["token"]:
+                    context.storage_state(path=str(STATE_FILE))
+                    save_token(token_holder["token"])
+                    return token_holder["token"]
+                page.wait_for_timeout(500)
+
+            raise RuntimeError(
+                "Không lấy được Bearer token từ Playwright. "
+                "Khả năng cao SALEWORK_STORAGE_STATE_JSON đã hết hạn hoặc URL trigger chưa đúng."
+            )
+
+        finally:
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-                page.wait_for_timeout(3000)
-
-                start = time.time()
-                while time.time() - start < (timeout_ms / 1000):
-                    if token_holder["token"]:
-                        context.storage_state(path=str(STATE_FILE))
-                        save_token(token_holder["token"])
-                        context.close()
-                        browser.close()
-                        return token_holder["token"]
-                    page.wait_for_timeout(500)
-
-            except PlaywrightTimeoutError:
-                continue
-            except Exception:
-                continue
-
-        # Fallback chờ thêm
-        start = time.time()
-        while time.time() - start < max(60, timeout_ms / 1000):
-            if token_holder["token"]:
                 context.storage_state(path=str(STATE_FILE))
-                save_token(token_holder["token"])
-                context.close()
-                browser.close()
-                return token_holder["token"]
-            page.wait_for_timeout(500)
+            except Exception:
+                pass
+            context.close()
+            browser.close()
 
-        context.storage_state(path=str(STATE_FILE))
-        context.close()
-        browser.close()
-
-    raise RuntimeError(
-        "Không lấy được Bearer token từ Playwright. "
-        "Khả năng cao SALEWORK_STORAGE_STATE_JSON đã hết hạn hoặc URL trigger chưa đúng."
-    )
 
 def load_or_create_access_token() -> str:
-    """
-    Ưu tiên:
-    1) token trong env nếu còn hạn
-    2) token.txt nếu còn hạn
-    3) mở Playwright để lấy token mới từ session state
-    """
+    try:
+        print("🔄 Ưu tiên lấy token mới từ Playwright...")
+        return get_token_from_playwright()
+    except Exception as e:
+        print("⚠️ Playwright lấy token lỗi:", e)
+
     token_from_env = os.getenv("SALEWORK_ACCESS_TOKEN", "").strip()
     if token_from_env and not is_token_expiring_soon(token_from_env, buffer_seconds=30):
+        print("✅ Dùng token từ SALEWORK_ACCESS_TOKEN")
         return token_from_env
 
     token = load_token_from_file()
     if token and not is_token_expiring_soon(token, buffer_seconds=30):
+        print("✅ Dùng token từ file")
         return token
 
-    print("🔄 Không có token hợp lệ, đang dùng Playwright để lấy token mới...")
-    return get_token_from_playwright()
+    raise RuntimeError("Không có access token hợp lệ")
 
 
 # ==============================
