@@ -203,49 +203,49 @@ def get_token_from_playwright(timeout_ms: int = PLAYWRIGHT_TIMEOUT_MS) -> str:
         page = context.new_page()
 
         def handle_request(request):
-    try:
-        url = request.url
-
-        if "getAdsExpenseTransactionsByDays" not in url:
-            return
-
-        headers = request.all_headers()
-
-        print("✅ FOUND AUTH URL:", url)
-        print("✅ HEADER KEYS:", list(headers.keys()))
-
-        auth = headers.get("authorization")
-        if auth is not None:
-            print("✅ AUTH EXISTS")
-            print("   - auth type:", type(auth).__name__)
-            print("   - auth repr:", repr(auth))
-            print("   - auth len :", len(auth))
-
-            parts = auth.split(" ", 1)
-            print("   - auth parts count:", len(parts))
-            if len(parts) == 2:
-                print("   - scheme:", repr(parts[0]))
-                print("   - token len:", len(parts[1]))
-                print("   - dot count:", parts[1].count("."))
-
-                if parts[0].lower() == "bearer" and parts[1].count(".") == 2:
-                    token_holder["token"] = parts[1].strip()
-                    print("✅ JWT TOKEN ĐÃ BẮT ĐƯỢC")
+            try:
+                url = request.url
+        
+                if "getAdsExpenseTransactionsByDays" not in url:
+                    return
+        
+                headers = request.all_headers()
+        
+                print("✅ FOUND AUTH URL:", url)
+                print("✅ HEADER KEYS:", list(headers.keys()))
+        
+                auth = headers.get("authorization")
+                if auth is not None:
+                    print("✅ AUTH EXISTS")
+                    print("   - auth type:", type(auth).__name__)
+                    print("   - auth repr:", repr(auth))
+                    print("   - auth len :", len(auth))
+        
+                    parts = auth.split(" ", 1)
+                    print("   - auth parts count:", len(parts))
+                    if len(parts) == 2:
+                        print("   - scheme:", repr(parts[0]))
+                        print("   - token len:", len(parts[1]))
+                        print("   - dot count:", parts[1].count("."))
+        
+                        if parts[0].lower() == "bearer" and parts[1].count(".") == 2:
+                            token_holder["token"] = parts[1].strip()
+                            print("✅ JWT TOKEN ĐÃ BẮT ĐƯỢC")
+                        else:
+                            print("❌ authorization có tồn tại nhưng không phải Bearer JWT")
+                    else:
+                        print("❌ authorization không có dạng '<scheme> <token>'")
                 else:
-                    print("❌ authorization có tồn tại nhưng không phải Bearer JWT")
-            else:
-                print("❌ authorization không có dạng '<scheme> <token>'")
-        else:
-            print("❌ Không có header authorization")
-
-        # Debug thêm các header hay chứa token
-        for k in ["x-access-token", "access-token", "token", "accesstoken", "authorization", "cookie"]:
-            if k in headers:
-                v = headers[k]
-                print(f"✅ HEADER {k}: len={len(v)}")
-
-    except Exception as e:
-        print("handle_request error:", e)
+                    print("❌ Không có header authorization")
+        
+                # Debug thêm các header hay chứa token
+                for k in ["x-access-token", "access-token", "token", "accesstoken", "authorization", "cookie"]:
+                    if k in headers:
+                        v = headers[k]
+                        print(f"✅ HEADER {k}: len={len(v)}")
+        
+            except Exception as e:
+                print("handle_request error:", e)
 
         # Gắn listener trước khi goto
         page.on("request", handle_request)
