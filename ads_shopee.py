@@ -1,98 +1,14 @@
 import os
 import json
-import base64
 import time
-from pathlib import Path
-from datetime import datetime, timedelta, timezone
-
-import pandas as pd
 import requests
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Dict, Any, List, Optional
+
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-from google.oauth2 import service_account
 from google.cloud import bigquery
-
-
-# ==============================
-# SALEWORK CONFIG
-# ==============================
-
-BASE_URL = "https://finance.salework.net/api/saleExpense/getAdsExpenseTransactionsByDays"
-APP_URL = "https://finance.salework.net/"
-
-COMPANY_ID = os.getenv("SALEWORK_COMPANY_ID", "sw30871")
-CHANNEL = os.getenv("SALEWORK_CHANNEL", "Shopee")
-PAGE_SIZE = int(os.getenv("SALEWORK_PAGE_SIZE", "500"))
-
-# Timeout Playwright
-PLAYWRIGHT_TIMEOUT_MS = int(os.getenv("PLAYWRIGHT_TIMEOUT_MS", "30000"))
-
-# File runtime trong GitHub Actions / local
-STATE_FILE = Path("salework_state.json")
-TOKEN_FILE = Path("token.txt")
-
-# Cookie phụ trợ nếu muốn ép thêm. Thường để rỗng.
-STATIC_COOKIE = os.getenv("SALEWORK_STATIC_COOKIE", "").strip()
-
-# Nếu app chỉ sinh Bearer khi vào màn cụ thể thì thêm URL ở đây.
-# Có thể set từ secret/env bằng JSON array hoặc comma-separated string.
-default_trigger_urls = [
-    "https://finance.salework.net/adsExpenseTransaction"
-]
-trigger_urls_env = os.getenv("TOKEN_TRIGGER_URLS", "").strip()
-
-if trigger_urls_env:
-    try:
-        TOKEN_TRIGGER_URLS = json.loads(trigger_urls_env)
-        if not isinstance(TOKEN_TRIGGER_URLS, list):
-            TOKEN_TRIGGER_URLS = default_trigger_urls
-    except Exception:
-        TOKEN_TRIGGER_URLS = [x.strip() for x in trigger_urls_env.split(",") if x.strip()]
-        if not TOKEN_TRIGGER_URLS:
-            TOKEN_TRIGGER_URLS = default_trigger_urls
-else:
-    TOKEN_TRIGGER_URLS = default_trigger_urls
-
-
-# ==============================
-# DATE RANGE
-# ==============================
-
-def build_date_range():
-    """
-    Mặc định lấy 7 ngày gần nhất theo múi giờ VN.
-    Có thể override bằng env:
-      - DATE_FROM
-      - DATE_TO
-    """
-    date_from_env = os.getenv("DATE_FROM", "").strip()
-    date_to_env = os.getenv("DATE_TO", "").strip()
-
-    if date_from_env and date_to_env:
-        return date_from_env, date_to_env
-
-    now_utc = datetime.now(timezone.utc)
-    now_vn = now_utc + timedelta(hours=7)
-
-    today_vn = now_vn.date()
-    start_day_vn = today_vn - timedelta(days=1)
-
-    date_from = datetime(
-        start_day_vn.year, start_day_vn.month, start_day_vn.day,
-        0, 0, 0, tzinfo=timezone.utc
-    ) - timedelta(hours=7)
-
-    date_to = datetime(
-        today_vn.year, today_vn.month, today_vn.day,
-        23, 59, 59, tzinfo=timezone.utc
-    ) - timedelta(hours=7)
-
-    return (
-        date_from.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-        date_to.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    )
-
-
-DATE_FROM, DATE_TO = build_date_range()
+from google.oauth2 import service_account
 
 
 # ==============================
@@ -101,93 +17,176 @@ DATE_FROM, DATE_TO = build_date_range()
 
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "rhysman-data-warehouse-488306")
 DATASET_ID = os.getenv("BQ_DATASET_ID", "rhysman")
-TABLE_ID = os.getenv("BQ_TABLE_ID", "fact_ads_shopee")
+BQ_TABLE_ID = os.getenv("BQ_TABLE_ID", "fact_ads_shopee")
 
-gcp_key = json.loads(os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON"))
+gcp_key_raw = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+if not gcp_key_raw:
+    raise RuntimeError("Thiếu biến môi trường GOOGLE_SERVICE_ACCOUNT_JSON")
+
+gcp_key = json.loads(gcp_key_raw)
 credentials = service_account.Credentials.from_service_account_info(gcp_key)
 
 bq_client = bigquery.Client(
     credentials=credentials,
     project=PROJECT_ID
 )
-table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
+
+table_ref = f"{PROJECT_ID}.{DATASET_ID}.{BQ_TABLE_ID}"
+
 
 # ==============================
-# BOOTSTRAP RUNTIME FILES
+# APP CONFIG
 # ==============================
 
-def bootstrap_runtime_files():
+PLAYWRIGHT_TIMEOUT_MS = int(os.getenv("PLAYWRIGHT_TIMEOUT_MS", "30000"))
+
+STATE_FILE = Path("salework_state.json")
+SESSION_FILE = Path("salework_session.json")
+
+TOKEN_TRIGGER_URLS = [
+    "https://finance.salework.net/adsExpenseTransaction",
+]
+
+API_URL = "https://finance.salework.net/api/saleExpense/getAdsExpenseTransactionsByDays"
+
+CHANNEL = os.getenv("SALEWORK_CHANNEL", "Shopee")
+
+VN_TZ = timezone(timedelta(hours=7))
+
+
+# ==============================
+# HELPERS
+# ==============================
+
+def now_vn() -> datetime:
+    return datetime.now(VN_TZ)
+
+
+def build_date_range() -> tuple[str, str]:
     """
-    Tạo token.txt và salework_state.json từ GitHub Secrets / env nếu có.
+    Lấy dữ liệu từ hôm qua 00:00:00 đến hôm nay 23:59:59 theo giờ Việt Nam,
+    rồi convert sang UTC ISO format có đuôi Z để gửi API.
     """
-    token_from_env = os.getenv("SALEWORK_ACCESS_TOKEN", "").strip()
-    state_from_env = os.getenv("SALEWORK_STORAGE_STATE_JSON", "").strip()
+    today_vn = now_vn().date()
+    start_day_vn = today_vn - timedelta(days=1)
+    end_day_vn = today_vn
 
-    if token_from_env:
-        TOKEN_FILE.write_text(token_from_env, encoding="utf-8")
+    start_dt_vn = datetime.combine(start_day_vn, datetime.min.time(), tzinfo=VN_TZ)
+    end_dt_vn = datetime.combine(
+        end_day_vn,
+        datetime.max.time().replace(microsecond=0),
+        tzinfo=VN_TZ
+    )
 
-    if state_from_env:
-        STATE_FILE.write_text(state_from_env, encoding="utf-8")
+    date_from = start_dt_vn.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    date_to = end_dt_vn.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    return date_from, date_to
 
 
-# ==============================
-# JWT HELPERS
-# ==============================
+def save_session(session_data: Dict[str, Any]) -> None:
+    SESSION_FILE.write_text(
+        json.dumps(session_data, ensure_ascii=False, indent=2),
+        encoding="utf-8"
+    )
 
-def decode_jwt_payload(token: str):
+
+def load_session() -> Optional[Dict[str, Any]]:
+    if not SESSION_FILE.exists():
+        return None
     try:
-        parts = token.split(".")
-        if len(parts) != 3:
-            return None
-
-        payload = parts[1]
-        padding = "=" * (-len(payload) % 4)
-        decoded = base64.urlsafe_b64decode(payload + padding)
-        return json.loads(decoded.decode("utf-8"))
+        return json.loads(SESSION_FILE.read_text(encoding="utf-8"))
     except Exception:
         return None
 
 
-def get_token_exp(token: str):
-    payload = decode_jwt_payload(token)
-    if not payload:
-        return None
-    return payload.get("exp")
+def build_cookie_string(cookies: List[Dict[str, Any]]) -> str:
+    return "; ".join(
+        f'{c["name"]}={c["value"]}'
+        for c in cookies
+        if c.get("name") and c.get("value")
+    )
 
 
-def is_token_expiring_soon(token: str, buffer_seconds: int = 120):
-    exp = get_token_exp(token)
-    if not exp:
-        return True
+def normalize_bigquery_value(value: Any) -> Any:
+    """
+    Chuẩn hóa value trước khi insert vào BigQuery JSON.
+    """
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
 
-    now_ts = int(datetime.now(timezone.utc).timestamp())
-    return (exp - now_ts) <= buffer_seconds
+    if isinstance(value, datetime):
+        return value.isoformat()
+
+    if isinstance(value, list):
+        return json.dumps(value, ensure_ascii=False)
+
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False)
+
+    return str(value)
 
 
-def save_token(token: str):
-    TOKEN_FILE.write_text(token.strip(), encoding="utf-8")
+def normalize_row_for_bq(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {k: normalize_bigquery_value(v) for k, v in row.items()}
 
 
-def load_token_from_file():
-    if TOKEN_FILE.exists():
-        token = TOKEN_FILE.read_text(encoding="utf-8").strip()
-        return token or None
-    return None
+def infer_bq_schema_from_rows(rows: List[Dict[str, Any]]) -> List[bigquery.SchemaField]:
+    """
+    Tạo schema linh hoạt từ dữ liệu trả về.
+    Mặc định:
+    - int -> INT64
+    - float -> FLOAT64
+    - bool -> BOOL
+    - còn lại -> STRING
+    """
+    field_types: Dict[str, str] = {}
+
+    for row in rows:
+        for key, value in row.items():
+            if value is None:
+                field_types.setdefault(key, "STRING")
+                continue
+
+            if isinstance(value, bool):
+                inferred = "BOOL"
+            elif isinstance(value, int) and not isinstance(value, bool):
+                inferred = "INT64"
+            elif isinstance(value, float):
+                inferred = "FLOAT64"
+            else:
+                inferred = "STRING"
+
+            current = field_types.get(key)
+            if current is None:
+                field_types[key] = inferred
+            elif current != inferred:
+                field_types[key] = "STRING"
+
+    # thêm cột date nếu chưa có
+    if "date" not in field_types:
+        field_types["date"] = "DATE"
+
+    schema = [bigquery.SchemaField(name, field_type) for name, field_type in field_types.items()]
+    return schema
 
 
 # ==============================
-# PLAYWRIGHT TOKEN CAPTURE
+# PLAYWRIGHT SESSION CAPTURE
 # ==============================
 
-def get_token_from_playwright(timeout_ms: int = PLAYWRIGHT_TIMEOUT_MS) -> str:
+def get_session_from_playwright(timeout_ms: int = PLAYWRIGHT_TIMEOUT_MS) -> Dict[str, Any]:
     """
-    Dùng Playwright headless để:
-    - nạp session cũ từ salework_state.json nếu có
-    - mở app
-    - nghe request network
-    - bắt Authorization: Bearer ...
+    Lấy session thực tế từ browser:
+    - authorization header (nếu có, ví dụ Bearer 1)
+    - companycode
+    - cookie string
     """
-    token_holder = {"token": None}
+    session_holder: Dict[str, Any] = {
+        "authorization": None,
+        "companycode": None,
+        "cookie": None,
+        "captured": False,
+    }
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -205,49 +204,30 @@ def get_token_from_playwright(timeout_ms: int = PLAYWRIGHT_TIMEOUT_MS) -> str:
         def handle_request(request):
             try:
                 url = request.url
-        
                 if "getAdsExpenseTransactionsByDays" not in url:
                     return
-        
+
                 headers = request.all_headers()
-        
-                print("✅ FOUND AUTH URL:", url)
-                print("✅ HEADER KEYS:", list(headers.keys()))
-        
+
                 auth = headers.get("authorization")
-                if auth is not None:
-                    print("✅ AUTH EXISTS")
-                    print("   - auth type:", type(auth).__name__)
-                    print("   - auth repr:", repr(auth))
-                    print("   - auth len :", len(auth))
-        
-                    parts = auth.split(" ", 1)
-                    print("   - auth parts count:", len(parts))
-                    if len(parts) == 2:
-                        print("   - scheme:", repr(parts[0]))
-                        print("   - token len:", len(parts[1]))
-                        print("   - dot count:", parts[1].count("."))
-        
-                        if parts[0].lower() == "bearer" and parts[1].count(".") == 2:
-                            token_holder["token"] = parts[1].strip()
-                            print("✅ JWT TOKEN ĐÃ BẮT ĐƯỢC")
-                        else:
-                            print("❌ authorization có tồn tại nhưng không phải Bearer JWT")
-                    else:
-                        print("❌ authorization không có dạng '<scheme> <token>'")
-                else:
-                    print("❌ Không có header authorization")
-        
-                # Debug thêm các header hay chứa token
-                for k in ["x-access-token", "access-token", "token", "accesstoken", "authorization", "cookie"]:
-                    if k in headers:
-                        v = headers[k]
-                        print(f"✅ HEADER {k}: len={len(v)}")
-        
+                companycode = headers.get("companycode")
+
+                cookies = context.cookies()
+                cookie_string = build_cookie_string(cookies)
+
+                session_holder["authorization"] = auth
+                session_holder["companycode"] = companycode
+                session_holder["cookie"] = cookie_string
+                session_holder["captured"] = True
+
+                print("✅ FOUND API URL:", url)
+                print("✅ authorization:", repr(auth))
+                print("✅ companycode:", repr(companycode))
+                print("✅ cookie len:", len(cookie_string))
+
             except Exception as e:
                 print("handle_request error:", e)
 
-        # Gắn listener trước khi goto
         page.on("request", handle_request)
 
         try:
@@ -255,14 +235,14 @@ def get_token_from_playwright(timeout_ms: int = PLAYWRIGHT_TIMEOUT_MS) -> str:
                 try:
                     print(f"🔄 Mở URL trigger: {url}")
                     page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-                    page.wait_for_timeout(3000)
+                    page.wait_for_timeout(5000)
 
                     start = time.time()
                     while time.time() - start < (timeout_ms / 1000):
-                        if token_holder["token"]:
+                        if session_holder["captured"]:
                             context.storage_state(path=str(STATE_FILE))
-                            save_token(token_holder["token"])
-                            return token_holder["token"]
+                            save_session(session_holder)
+                            return session_holder
                         page.wait_for_timeout(500)
 
                 except PlaywrightTimeoutError:
@@ -272,20 +252,14 @@ def get_token_from_playwright(timeout_ms: int = PLAYWRIGHT_TIMEOUT_MS) -> str:
                     print(f"⚠️ Lỗi khi mở {url}: {e}")
                     continue
 
-            # Fallback chờ thêm nếu request bắn chậm
-            print("⏳ Chưa bắt được token, chờ thêm...")
+            print("⏳ Chưa bắt được session, chờ thêm...")
             start = time.time()
             while time.time() - start < max(60, timeout_ms / 1000):
-                if token_holder["token"]:
+                if session_holder["captured"]:
                     context.storage_state(path=str(STATE_FILE))
-                    save_token(token_holder["token"])
-                    return token_holder["token"]
+                    save_session(session_holder)
+                    return session_holder
                 page.wait_for_timeout(500)
-
-            raise RuntimeError(
-                "Không lấy được Bearer token từ Playwright. "
-                "Khả năng cao SALEWORK_STORAGE_STATE_JSON đã hết hạn hoặc URL trigger chưa đúng."
-            )
 
         finally:
             try:
@@ -295,198 +269,197 @@ def get_token_from_playwright(timeout_ms: int = PLAYWRIGHT_TIMEOUT_MS) -> str:
             context.close()
             browser.close()
 
+    raise RuntimeError(
+        "Không lấy được session từ Playwright. "
+        "Khả năng cao salework_state.json đã hết hạn hoặc URL trigger chưa đúng."
+    )
 
-def load_or_create_access_token() -> str:
+
+def load_or_create_session() -> Dict[str, Any]:
     try:
-        print("🔄 Ưu tiên lấy token mới từ Playwright...")
-        return get_token_from_playwright()
+        print("🔄 Ưu tiên lấy session mới từ Playwright...")
+        session_data = get_session_from_playwright()
+
+        if session_data.get("cookie") and session_data.get("companycode"):
+            return session_data
+
+        raise RuntimeError("Session lấy từ Playwright chưa đủ dữ liệu.")
     except Exception as e:
-        print("⚠️ Playwright lấy token lỗi:", e)
+        print("⚠️ Playwright lấy session lỗi:", e)
 
-    token_from_env = os.getenv("SALEWORK_ACCESS_TOKEN", "").strip()
-    if token_from_env and not is_token_expiring_soon(token_from_env, buffer_seconds=30):
-        print("✅ Dùng token từ SALEWORK_ACCESS_TOKEN")
-        return token_from_env
+    cached = load_session()
+    if cached and cached.get("cookie") and cached.get("companycode"):
+        print("✅ Dùng session từ file")
+        return cached
 
-    token = load_token_from_file()
-    if token and not is_token_expiring_soon(token, buffer_seconds=30):
-        print("✅ Dùng token từ file")
-        return token
-
-    raise RuntimeError("Không có access token hợp lệ")
+    raise RuntimeError("Không có session hợp lệ")
 
 
 # ==============================
-# SALEWORK CLIENT
+# API CALL
 # ==============================
 
-class SaleworkClient:
-    def __init__(self, access_token: str):
-        self.access_token = access_token
-        self.session = requests.Session()
-        self.session.headers.update({
-            "accept": "*/*",
-            "content-type": "application/json",
-            "companycode": COMPANY_ID,
-            "platform": "web",
-            "origin": APP_URL.rstrip("/"),
-            "referer": APP_URL,
-            "user-agent": "Mozilla/5.0",
-        })
+def build_request_headers(session_data: Dict[str, Any]) -> Dict[str, str]:
+    headers = {
+        "accept": "*/*",
+        "accept-language": "vi,en-US;q=0.9,en;q=0.8",
+        "content-type": "application/json",
+        "origin": "https://finance.salework.net",
+        "platform": "web",
+        "priority": "u=1, i",
+        "referer": "https://finance.salework.net/adsExpenseTransaction",
+        "companycode": session_data["companycode"],
+        "cookie": session_data["cookie"],
+        "user-agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36"
+        ),
+    }
 
-        if STATIC_COOKIE:
-            self.session.headers["cookie"] = STATIC_COOKIE
+    if session_data.get("authorization"):
+        headers["authorization"] = session_data["authorization"]
 
-        self._apply_auth_header()
-
-    def _apply_auth_header(self):
-        self.session.headers["authorization"] = f"Bearer {self.access_token}"
-
-    def refresh_access_token(self):
-        print("🔄 Token sắp hết hạn hoặc đã hết hạn, đang lấy token mới bằng Playwright...")
-        new_token = get_token_from_playwright()
-
-        if not new_token:
-            raise RuntimeError("Không lấy được token mới từ Playwright")
-
-        self.access_token = new_token
-        self._apply_auth_header()
-        print("✅ Đã cập nhật access token mới")
-        payload = decode_jwt_payload(self.access_token)
-
-        if payload:
-            print("TOKEN USER:", payload.get("user_data", {}).get("username"))
-            print("TOKEN COMPANY:", payload.get("user_data", {}).get("company", {}))
-            print("TOKEN EXP:", payload.get("exp"))
-        else:
-            print("TOKEN KHÔNG PHẢI JWT")
-            print("TOKEN PREVIEW:", self.access_token[:80] + "..." if self.access_token else "EMPTY")
-
-    def ensure_valid_token(self):
-        if is_token_expiring_soon(self.access_token, buffer_seconds=120):
-            self.refresh_access_token()
-
-    def post(self, url: str, json_payload: dict, timeout: int = 30):
-        self.ensure_valid_token()
-
-        response = self.session.post(url, json=json_payload, timeout=timeout)
-
-        if response.status_code == 401:
-            print("⚠️ API trả 401, thử lấy token mới rồi gọi lại...")
-            self.refresh_access_token()
-            response = self.session.post(url, json=json_payload, timeout=timeout)
-
-        response.raise_for_status()
-        return response
+    return headers
 
 
-# ==============================
-# FETCH DATA
-# ==============================
+def fetch_one_page(
+    http_session: requests.Session,
+    session_data: Dict[str, Any],
+    date_from: str,
+    date_to: str,
+    start_page: int = 0,
+    page_size: int = 500,
+) -> Dict[str, Any]:
+    payload = {
+        "startPage": start_page,
+        "sizePage": page_size,
+        "startDate": date_from,
+        "endDate": date_to,
+        "channel": CHANNEL,
+    }
 
-def fetch_orders(sw_client: SaleworkClient):
-    all_items = []
-    page = 0
-    total = None
+    headers = build_request_headers(session_data)
 
-    while True:
-        payload = {
-            "startPage": page,
-            "sizePage": PAGE_SIZE,
-            "startDate": DATE_FROM,
-            "endDate": DATE_TO,
-            "channel": CHANNEL
+    print("📤 PAYLOAD:", payload)
+    resp = http_session.post(API_URL, headers=headers, json=payload, timeout=60)
+
+    print("📥 STATUS:", resp.status_code)
+    print("📥 RESPONSE TEXT:", resp.text[:500])
+
+    try:
+        return resp.json()
+    except Exception:
+        return {
+            "success": False,
+            "message": "response is not valid json",
+            "raw_text": resp.text
         }
 
-        print(f"📥 Fetch page {page}")
 
-        response = sw_client.post(BASE_URL, payload, timeout=30)
+def fetch_all_data(
+    session_data: Dict[str, Any],
+    date_from: str,
+    date_to: str,
+) -> List[Dict[str, Any]]:
+    http_session = requests.Session()
+    all_rows: List[Dict[str, Any]] = []
+    start_page = 0
+    page_size = 500
 
-        print("STATUS:", response.status_code)
-        print("RESPONSE TEXT:", response.text[:5000])
-        print("PAYLOAD:", payload)
-        
-        resp = response.json()
-        payload_data = resp.get("data", {})
-        items = payload_data.get("tableData", [])
-        total = payload_data.get("total", total)
-        
-        print(f"items len: {len(items)} | total: {total}")
+    while True:
+        print(f"📥 Fetch page {start_page}")
+
+        data = fetch_one_page(
+            http_session=http_session,
+            session_data=session_data,
+            date_from=date_from,
+            date_to=date_to,
+            start_page=start_page,
+            page_size=page_size,
+        )
+
+        if not data.get("success"):
+            message = data.get("message")
+            raise RuntimeError(f"API lỗi: {message}")
+
+        items = data.get("data") or []
+        total = data.get("total")
+
+        print(f"✅ items len: {len(items)} | total: {total}")
 
         if not items:
             print("✅ No more data, stop")
             break
 
-        all_items.extend(items)
-        print(f"👉 Fetched: {len(all_items)} / {total}")
+        all_rows.extend(items)
 
-        if total is not None and len(all_items) >= total:
-            print("✅ Reached total records, stop")
+        if len(items) < page_size:
+            print("✅ Trang cuối, stop")
             break
 
-        page += 1
-        time.sleep(0.1)
+        start_page += 1
 
-    return all_items
-
-
-# ==============================
-# TRANSFORM
-# ==============================
-
-def build_dataframe(orders):
-    rows = []
-    for item in orders:
-        rows.append({
-            "shopId": str(item.get("shopId", "")),
-            "date": item.get("date"),
-            "amount": item.get("amount"),
-            "vat": item.get("vat"),
-        })
-
-    df = pd.DataFrame(rows)
-
-    if df.empty:
-        return df
-
-    df = df.drop_duplicates(subset=["shopId", "date", "amount", "vat"])
-
-    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
-    df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
-    df["vat"] = pd.to_numeric(df["vat"], errors="coerce")
-
-    return df
+    return all_rows
 
 
 # ==============================
-# LOAD TO BIGQUERY
+# BIGQUERY
 # ==============================
 
-def delete_recent_rows():
-    print("\n🧹 Deleting last 7 days...")
-    delete_query = f"""
-        DELETE FROM `{table_ref}`
-        WHERE date >= DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
+def ensure_table_exists(rows: List[Dict[str, Any]]) -> None:
+    try:
+        bq_client.get_table(table_ref)
+        print(f"✅ Table exists: {table_ref}")
+    except Exception:
+        print(f"⚠️ Table chưa tồn tại, tạo mới: {table_ref}")
+
+        schema = infer_bq_schema_from_rows(rows)
+
+        table = bigquery.Table(table_ref, schema=schema)
+        bq_client.create_table(table)
+        print(f"✅ Created table: {table_ref}")
+
+
+def delete_recent_rows() -> None:
+    query = f"""
+    DELETE FROM `{table_ref}`
+    WHERE DATE(date) >= DATE_SUB(CURRENT_DATE("Asia/Ho_Chi_Minh"), INTERVAL 1 DAY)
     """
-    bq_client.query(delete_query).result()
+    print("\n🧹 Deleting yesterday and today...")
+    bq_client.query(query).result()
     print("✅ Delete done")
 
 
-def load_to_bigquery(df: pd.DataFrame):
-    print("\n💾 Loading to BigQuery...")
+def load_to_bigquery(rows: List[Dict[str, Any]]) -> None:
+    normalized_rows = []
 
-    job_config = bigquery.LoadJobConfig(
-        write_disposition="WRITE_APPEND"
-    )
+    today_vn = now_vn().date()
+    yesterday_vn = today_vn - timedelta(days=1)
 
-    job = bq_client.load_table_from_dataframe(
-        df,
-        table_ref,
-        job_config=job_config
-    )
-    job.result()
+    for row in rows:
+        row_out = normalize_row_for_bq(row)
 
-    print("✅ DONE LOAD SHOPEE → BIGQUERY")
+        # nếu API chưa trả cột date thì cố gắng map thêm
+        if "date" not in row_out or not row_out.get("date"):
+            if "createdAt" in row_out and row_out["createdAt"]:
+                row_out["date"] = str(row_out["createdAt"])[:10]
+            elif "transactionDate" in row_out and row_out["transactionDate"]:
+                row_out["date"] = str(row_out["transactionDate"])[:10]
+            else:
+                row_out["date"] = str(today_vn)
+
+        normalized_rows.append(row_out)
+
+    ensure_table_exists(normalized_rows)
+
+    errors = bq_client.insert_rows_json(table_ref, normalized_rows)
+    if errors:
+        print("❌ BigQuery insert errors:")
+        print(json.dumps(errors, ensure_ascii=False, indent=2))
+        raise RuntimeError("Insert BigQuery thất bại")
+    else:
+        print(f"✅ Inserted {len(normalized_rows)} rows into {table_ref}")
 
 
 # ==============================
@@ -494,41 +467,36 @@ def load_to_bigquery(df: pd.DataFrame):
 # ==============================
 
 def main():
-    bootstrap_runtime_files()
+    print("🚀 START SALEWORK SHOPEE ETL")
+    print("📌 TABLE:", table_ref)
 
-    print("\n🚀 START SALEWORK SHOPEE → BIGQUERY ETL\n")
-    print(f"DATE_FROM: {DATE_FROM}")
-    print(f"DATE_TO  : {DATE_TO}")
-    print(f"TABLE    : {table_ref}")
+    date_from, date_to = build_date_range()
+    print("📅 DATE_FROM:", date_from)
+    print("📅 DATE_TO  :", date_to)
 
-    access_token = load_or_create_access_token()
-    sw_client = SaleworkClient(access_token=access_token)
+    session_data = load_or_create_session()
 
-    exp = get_token_exp(sw_client.access_token)
-    if exp:
-        exp_dt = datetime.fromtimestamp(exp, tz=timezone.utc).astimezone(
-            timezone(timedelta(hours=7))
-        )
-        print("🔐 Current token expires at:", exp_dt.strftime("%Y-%m-%d %H:%M:%S"))
+    print("✅ SESSION READY")
+    print("   - authorization:", repr(session_data.get("authorization")))
+    print("   - companycode  :", repr(session_data.get("companycode")))
+    print("   - cookie len   :", len(session_data.get("cookie", "")))
 
-    orders = fetch_orders(sw_client)
-    print(f"\n📦 Total orders: {len(orders)}")
+    rows = fetch_all_data(
+        session_data=session_data,
+        date_from=date_from,
+        date_to=date_to,
+    )
 
-    if not orders:
+    print(f"📦 Total rows fetched: {len(rows)}")
+
+    if not rows:
         print("⚠️ No data")
         return
 
-    df = build_dataframe(orders)
-
-    print("\n📊 Columns:", list(df.columns))
-    print("🧾 Rows:", len(df))
-
-    if df.empty:
-        print("⚠️ DataFrame rỗng, dừng load")
-        return
-
     delete_recent_rows()
-    load_to_bigquery(df)
+    load_to_bigquery(rows)
+
+    print("🎉 DONE")
 
 
 if __name__ == "__main__":
