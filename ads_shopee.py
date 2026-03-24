@@ -35,7 +35,10 @@ STATIC_COOKIE = os.getenv("SALEWORK_STATIC_COOKIE", "").strip()
 
 # Nếu app chỉ sinh Bearer khi vào màn cụ thể thì thêm URL ở đây.
 # Có thể set từ secret/env bằng JSON array hoặc comma-separated string.
-default_trigger_urls = ["https://finance.salework.net/adsExpenseTransaction"]
+default_trigger_urls = [
+    "https://finance.salework.net/",
+    "https://finance.salework.net/adsExpenseTransaction"
+]
 trigger_urls_env = os.getenv("TOKEN_TRIGGER_URLS", "").strip()
 
 if trigger_urls_env:
@@ -104,7 +107,7 @@ TABLE_ID = os.getenv("BQ_TABLE_ID", "fact_ads_shopee")
 gcp_key = json.loads(os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON"))
 credentials = service_account.Credentials.from_service_account_info(gcp_key)
 
-client = bigquery.Client(
+bq_client = bigquery.Client(
     credentials=credentials,
     project=PROJECT_ID
 )
@@ -202,12 +205,25 @@ def get_token_from_playwright(timeout_ms: int = PLAYWRIGHT_TIMEOUT_MS) -> str:
 
         def handle_request(request):
             try:
+                url = request.url
+        
+                # ❗ chỉ bắt đúng API finance
+                if "saleExpense" not in url:
+                    return
+        
                 headers = request.all_headers()
                 auth = headers.get("authorization")
+        
                 if auth and auth.lower().startswith("bearer "):
-                    token_holder["token"] = auth[7:].strip()
-            except Exception:
-                pass
+                    token = auth[7:].strip()
+        
+                    print("✅ FOUND TOKEN:", url)
+                    print("DOT COUNT:", token.count("."))
+        
+                    token_holder["token"] = token
+        
+            except Exception as e:
+                print("handle_request error:", e)
 
         page.on("request", handle_request)
 
@@ -250,7 +266,6 @@ def get_token_from_playwright(timeout_ms: int = PLAYWRIGHT_TIMEOUT_MS) -> str:
         "Không lấy được Bearer token từ Playwright. "
         "Khả năng cao SALEWORK_STORAGE_STATE_JSON đã hết hạn hoặc URL trigger chưa đúng."
     )
-
 
 def load_or_create_access_token() -> str:
     """
@@ -308,9 +323,14 @@ class SaleworkClient:
         self._apply_auth_header()
         print("✅ Đã cập nhật access token mới")
         payload = decode_jwt_payload(self.access_token)
-        print("TOKEN USER:", payload.get("user_data", {}).get("username"))
-        print("TOKEN COMPANY:", payload.get("user_data", {}).get("company", {}))
-        print("TOKEN EXP:", payload.get("exp"))
+
+        if payload:
+            print("TOKEN USER:", payload.get("user_data", {}).get("username"))
+            print("TOKEN COMPANY:", payload.get("user_data", {}).get("company", {}))
+            print("TOKEN EXP:", payload.get("exp"))
+        else:
+            print("TOKEN KHÔNG PHẢI JWT")
+            print("TOKEN PREVIEW:", self.access_token[:80] + "..." if self.access_token else "EMPTY")
 
     def ensure_valid_token(self):
         if is_token_expiring_soon(self.access_token, buffer_seconds=120):
