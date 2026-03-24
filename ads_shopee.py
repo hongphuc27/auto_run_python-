@@ -210,7 +210,7 @@ def get_token_from_playwright(timeout_ms: int = PLAYWRIGHT_TIMEOUT_MS) -> str:
                     return
         
                 headers = request.all_headers()
-                auth = headers.get("authorization")
+                auth = headers.get("Authorization")
         
                 if not auth:
                     return
@@ -218,7 +218,7 @@ def get_token_from_playwright(timeout_ms: int = PLAYWRIGHT_TIMEOUT_MS) -> str:
                 print("✅ FOUND AUTH URL:", url)
                 print("✅ RAW AUTH:", repr(auth))
         
-                if not auth.lower().startswith("bearer "):
+                if not auth.lower().startswith("Bearer "):
                     print("❌ Authorization không phải Bearer")
                     return
         
