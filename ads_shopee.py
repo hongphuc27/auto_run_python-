@@ -205,33 +205,33 @@ def get_token_from_playwright(timeout_ms: int = PLAYWRIGHT_TIMEOUT_MS) -> str:
         def handle_request(request):
             try:
                 url = request.url
-
-                # Chỉ bắt đúng endpoint có Bearer bạn đã thấy trong F12
+        
                 if "getAdsExpenseTransactionsByDays" not in url:
                     return
-
+        
                 headers = request.all_headers()
                 auth = headers.get("authorization")
-
+        
                 if not auth:
-                    print("❌ Không có authorization ở URL:", url)
                     return
-
-                print("✅ Authorization header found")
-
+        
+                print("✅ FOUND AUTH URL:", url)
+                print("✅ RAW AUTH:", repr(auth))
+        
                 if not auth.lower().startswith("bearer "):
                     print("❌ Authorization không phải Bearer")
                     return
-
+        
                 token = auth[7:].strip()
-
-                if not token:
-                    print("❌ Bearer rỗng")
+        
+                # Chỉ nhận JWT thật
+                if token.count(".") != 2 or len(token) < 50:
+                    print("❌ Token không phải JWT hợp lệ:", repr(token[:50]))
                     return
-
+        
                 token_holder["token"] = token
-                print("✅ TOKEN ĐÃ BẮT ĐƯỢC")
-
+                print("✅ TOKEN JWT ĐÃ BẮT ĐƯỢC")
+        
             except Exception as e:
                 print("handle_request error:", e)
 
