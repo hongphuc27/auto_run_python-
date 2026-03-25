@@ -263,21 +263,25 @@ def load_to_bigquery(rows: List[Dict[str, Any]]) -> None:
     normalized_rows = []
 
     today_vn = now_vn().date()
-
+    
     for row in rows:
-        row_out = normalize_row_for_bq(row)
-
-        if "date" not in row_out or not row_out.get("date"):
-            if "createdAt" in row_out and row_out["createdAt"]:
-                row_out["date"] = str(row_out["createdAt"])[:10]
-            elif "transactionDate" in row_out and row_out["transactionDate"]:
-                row_out["date"] = str(row_out["transactionDate"])[:10]
+        # xử lý date
+        date_value = row.get("date")
+    
+        if not date_value:
+            if row.get("created_at"):
+                date_value = str(row["created_at"])[:10]
+            elif row.get("transactionDate"):
+                date_value = str(row["transactionDate"])[:10]
             else:
-                row_out["date"] = str(today_vn)
-
-        normalized_rows.append(row_out)
-
-    ensure_table_exists(normalized_rows)
+                date_value = str(today_vn)
+    
+        normalized_rows.append({
+            "shopId": str(row.get("shopId", "")),
+            "date": str(date_value)[:10],
+            "amount": float(row.get("amount", 0)) if row.get("amount") else None,
+            "vat": float(row.get("vat", 0)) if row.get("vat") else None,
+        })
 
     job = bq_client.load_table_from_json(
         normalized_rows,
