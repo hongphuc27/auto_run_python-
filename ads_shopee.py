@@ -38,6 +38,9 @@ SALEWORK_AUTHORIZATION = os.getenv("SALEWORK_AUTHORIZATION", "").strip()
 SALEWORK_COMPANYCODE = os.getenv("SALEWORK_COMPANYCODE", "").strip()
 SALEWORK_COOKIE = os.getenv("SALEWORK_COOKIE", "").strip()
 
+if SALEWORK_AUTHORIZATION and not SALEWORK_AUTHORIZATION.startswith("Bearer "):
+    SALEWORK_AUTHORIZATION = f"Bearer {SALEWORK_AUTHORIZATION}"
+
 VN_TZ = timezone(timedelta(hours=7))
 
 
