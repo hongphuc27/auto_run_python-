@@ -75,7 +75,7 @@ CAMPAIGN_PRODUCT_LIST = [
 ]
 
 END_TIME = datetime.today().strftime("%Y-%m-%d")
-START_TIME = (datetime.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+START_TIME = (datetime.today() - timedelta(days=30)).strftime("%Y-%m-%d")
 
 # ===== BIGQUERY CONFIG =====
 PROJECT_ID = "rhysman-data-warehouse-488306"
@@ -380,7 +380,7 @@ if __name__ == "__main__":
 
     # 🔥 XÓA 1 LẦN (LOGIC MỚI)
     print("\n🧹 Deleting last 20 days data in BigQuery...")
-    delete_last_n_days(bq_client, days=20)
+    delete_last_n_days(bq_client, days=30)
     print("✅ Delete done")
 
     # 💾 FETCH + GỘP DATA
