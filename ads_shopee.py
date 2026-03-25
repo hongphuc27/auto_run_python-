@@ -203,8 +203,9 @@ def fetch_all_data(date_from: str, date_to: str) -> List[Dict[str, Any]]:
         if not data.get("success"):
             raise RuntimeError(f"API lỗi: {data.get('message')}")
 
-        items = data.get("data") or []
-        total = data.get("total")
+        payload_data = data.get("data", {})
+        items = payload_data.get("tableData", [])
+        total = payload_data.get("total")
         print(f"✅ items len: {len(items)} | total: {total}")
 
         if not items:
@@ -213,8 +214,7 @@ def fetch_all_data(date_from: str, date_to: str) -> List[Dict[str, Any]]:
 
         all_rows.extend(items)
 
-        if len(items) < page_size:
-            print("✅ Trang cuối, stop")
+       if total and len(all_rows) >= total:
             break
 
         start_page += 1
@@ -268,12 +268,17 @@ def load_to_bigquery(rows: List[Dict[str, Any]]) -> None:
 
     ensure_table_exists(normalized_rows)
 
-    errors = bq_client.insert_rows_json(table_ref, normalized_rows)
-    if errors:
-        print(json.dumps(errors, ensure_ascii=False, indent=2))
-        raise RuntimeError("Insert BigQuery thất bại")
-
-    print(f"✅ Inserted {len(normalized_rows)} rows into {table_ref}")
+    job = bq_client.load_table_from_json(
+        normalized_rows,
+        table_ref,
+        job_config=bigquery.LoadJobConfig(
+            write_disposition="WRITE_APPEND"
+        )
+    )
+    
+    job.result()  # đợi job chạy xong
+    
+    print(f"✅ Loaded {len(normalized_rows)} rows into {table_ref}")
 
 
 # ==============================
