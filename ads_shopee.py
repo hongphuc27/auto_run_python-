@@ -214,9 +214,10 @@ def fetch_all_data(date_from: str, date_to: str) -> List[Dict[str, Any]]:
 
         all_rows.extend(items)
 
-       if total and len(all_rows) >= total:
+        if total and len(all_rows) >= total:
+            print("✅ Reached total records, stop")
             break
-
+        
         start_page += 1
 
     return all_rows
