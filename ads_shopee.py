@@ -1,20 +1,39 @@
 import os
 import json
-import requests
+import time
+from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, List
 
+import requests
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
 
 # ==============================
-# BIGQUERY CONFIG
+# CONFIG
 # ==============================
+
+LOGIN_URL = "https://salework.net/login"
+APP_URL = "https://finance.salework.net/adsExpenseTransaction"
+API_URL = "https://finance.salework.net/api/saleExpense/getAdsExpenseTransactionsByDays"
 
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "rhysman-data-warehouse-488306")
 DATASET_ID = os.getenv("BQ_DATASET_ID", "rhysman")
 BQ_TABLE_ID = os.getenv("BQ_TABLE_ID", "fact_ads_shopee")
+CHANNEL = os.getenv("SALEWORK_CHANNEL", "Shopee")
+
+SALEWORK_EMAIL = os.getenv("SALEWORK_EMAIL", "").strip()
+SALEWORK_PASSWORD = os.getenv("SALEWORK_PASSWORD", "").strip()
+SALEWORK_COMPANYCODE = os.getenv("SALEWORK_COMPANYCODE", "").strip()
+
+VN_TZ = timezone(timedelta(hours=7))
+table_ref = f"{PROJECT_ID}.{DATASET_ID}.{BQ_TABLE_ID}"
+
+
+# ==============================
+# BIGQUERY
+# ==============================
 
 gcp_key_raw = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
 if not gcp_key_raw:
@@ -24,36 +43,25 @@ gcp_key = json.loads(gcp_key_raw)
 credentials = service_account.Credentials.from_service_account_info(gcp_key)
 bq_client = bigquery.Client(credentials=credentials, project=PROJECT_ID)
 
-table_ref = f"{PROJECT_ID}.{DATASET_ID}.{BQ_TABLE_ID}"
-
-
-# ==============================
-# SALEWORK CONFIG
-# ==============================
-
-API_URL = "https://finance.salework.net/api/saleExpense/getAdsExpenseTransactionsByDays"
-CHANNEL = os.getenv("SALEWORK_CHANNEL", "Shopee")
-
-SALEWORK_AUTHORIZATION = os.getenv("SALEWORK_AUTHORIZATION", "").strip()
-SALEWORK_COMPANYCODE = os.getenv("SALEWORK_COMPANYCODE", "").strip()
-SALEWORK_COOKIE = os.getenv("SALEWORK_COOKIE", "").strip()
-
-SALEWORK_AUTHORIZATION = SALEWORK_AUTHORIZATION.replace("\r", "").replace("\n", "").strip()
-
-if SALEWORK_AUTHORIZATION.startswith("Authorization:"):
-    SALEWORK_AUTHORIZATION = SALEWORK_AUTHORIZATION[len("Authorization:"):].strip()
-
-SALEWORK_AUTHORIZATION = SALEWORK_AUTHORIZATION.strip('"').strip("'").strip()
-
-if SALEWORK_AUTHORIZATION and not SALEWORK_AUTHORIZATION.startswith("Bearer "):
-    SALEWORK_AUTHORIZATION = f"Bearer {SALEWORK_AUTHORIZATION}"
-
-VN_TZ = timezone(timedelta(hours=7))
-
 
 # ==============================
 # HELPERS
 # ==============================
+
+def validate_config() -> None:
+    missing = []
+    if not SALEWORK_EMAIL:
+        missing.append("SALEWORK_EMAIL")
+    if not SALEWORK_PASSWORD:
+        missing.append("SALEWORK_PASSWORD")
+    if not SALEWORK_COMPANYCODE:
+        missing.append("SALEWORK_COMPANYCODE")
+    if not gcp_key_raw:
+        missing.append("GOOGLE_SERVICE_ACCOUNT_JSON")
+
+    if missing:
+        raise RuntimeError(f"Thiếu biến môi trường: {', '.join(missing)}")
+
 
 def now_vn() -> datetime:
     return datetime.now(VN_TZ)
@@ -76,92 +84,174 @@ def build_date_range() -> tuple[str, str]:
     return date_from, date_to
 
 
-def validate_config() -> None:
-    missing = []
-    if not SALEWORK_AUTHORIZATION:
-        missing.append("SALEWORK_AUTHORIZATION")
-    if not SALEWORK_COMPANYCODE:
-        missing.append("SALEWORK_COMPANYCODE")
-    if not SALEWORK_COOKIE:
-        missing.append("SALEWORK_COOKIE")
-
-    if missing:
-        raise RuntimeError(f"Thiếu biến môi trường: {', '.join(missing)}")
+def safe_float(value: Any) -> Optional[float]:
+    if value in (None, "", "null"):
+        return None
+    try:
+        return float(value)
+    except Exception:
+        return None
 
 
-def normalize_bigquery_value(value: Any) -> Any:
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    if isinstance(value, list):
-        return json.dumps(value, ensure_ascii=False)
-    if isinstance(value, dict):
-        return json.dumps(value, ensure_ascii=False)
-    return str(value)
+def extract_date(row: Dict[str, Any]) -> str:
+    today_vn = now_vn().date().isoformat()
+
+    for key in ["date", "created_at", "createdAt", "transactionDate"]:
+        val = row.get(key)
+        if val:
+            return str(val)[:10]
+
+    return today_vn
 
 
-def normalize_row_for_bq(row: Dict[str, Any]) -> Dict[str, Any]:
-    return {k: normalize_bigquery_value(v) for k, v in row.items()}
+# ==============================
+# PLAYWRIGHT LOGIN + TOKEN CAPTURE
+# ==============================
 
+def get_salework_token_and_cookie() -> tuple[str, str]:
+    token_holder = {"token": None}
+    cookie_holder = {"cookie": ""}
 
-def infer_bq_schema_from_rows(rows: List[Dict[str, Any]]) -> List[bigquery.SchemaField]:
-    field_types: Dict[str, str] = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage"]
+        )
+        context = browser.new_context()
+        page = context.new_page()
 
-    for row in rows:
-        for key, value in row.items():
-            if value is None:
-                field_types.setdefault(key, "STRING")
+        def handle_request(request):
+            try:
+                headers = request.all_headers()
+                auth = headers.get("authorization") or headers.get("Authorization")
+                if auth and auth.startswith("Bearer "):
+                    token_holder["token"] = auth
+            except Exception:
+                pass
+
+        page.on("request", handle_request)
+
+        page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(3000)
+
+        # Thử nhiều selector phổ biến
+        email_selectors = [
+            'input[type="email"]',
+            'input[name="email"]',
+            'input[placeholder*="Email"]',
+            'input[placeholder*="email"]',
+            'input[type="text"]',
+        ]
+        password_selectors = [
+            'input[type="password"]',
+            'input[name="password"]',
+            'input[placeholder*="Mật khẩu"]',
+            'input[placeholder*="Password"]',
+        ]
+        submit_selectors = [
+            'button[type="submit"]',
+            'button:has-text("Đăng nhập")',
+            'button:has-text("Login")',
+            'input[type="submit"]',
+        ]
+
+        email_filled = False
+        for selector in email_selectors:
+            try:
+                page.locator(selector).first.fill(SALEWORK_EMAIL, timeout=3000)
+                email_filled = True
+                break
+            except Exception:
                 continue
 
-            if isinstance(value, bool):
-                inferred = "BOOL"
-            elif isinstance(value, int) and not isinstance(value, bool):
-                inferred = "INT64"
-            elif isinstance(value, float):
-                inferred = "FLOAT64"
-            else:
-                inferred = "STRING"
+        if not email_filled:
+            browser.close()
+            raise RuntimeError("Không tìm thấy ô nhập email trên trang login Salework.")
 
-            current = field_types.get(key)
-            if current is None:
-                field_types[key] = inferred
-            elif current != inferred:
-                field_types[key] = "STRING"
+        password_filled = False
+        for selector in password_selectors:
+            try:
+                page.locator(selector).first.fill(SALEWORK_PASSWORD, timeout=3000)
+                password_filled = True
+                break
+            except Exception:
+                continue
 
-    if "date" not in field_types:
-        field_types["date"] = "DATE"
+        if not password_filled:
+            browser.close()
+            raise RuntimeError("Không tìm thấy ô nhập mật khẩu trên trang login Salework.")
 
-    return [bigquery.SchemaField(name, field_type) for name, field_type in field_types.items()]
+        submitted = False
+        for selector in submit_selectors:
+            try:
+                page.locator(selector).first.click(timeout=3000)
+                submitted = True
+                break
+            except Exception:
+                continue
+
+        if not submitted:
+            browser.close()
+            raise RuntimeError("Không tìm thấy nút đăng nhập trên trang login Salework.")
+
+        # Chờ chuyển trang / load app
+        try:
+            page.wait_for_load_state("networkidle", timeout=30000)
+        except PlaywrightTimeoutError:
+            pass
+
+        # Mở màn cần kích hoạt request finance
+        try:
+            page.goto(APP_URL, wait_until="domcontentloaded", timeout=60000)
+        except Exception:
+            pass
+
+        start = time.time()
+        while time.time() - start < 30:
+            if token_holder["token"]:
+                break
+            page.wait_for_timeout(1000)
+
+        if not token_holder["token"]:
+            content = page.content()[:2000]
+            browser.close()
+            raise RuntimeError(
+                "Không bắt được Bearer token sau khi đăng nhập. "
+                "Có thể selector login chưa khớp hoặc flow đăng nhập có bước phụ."
+            )
+
+        cookies = context.cookies()
+        cookie_str = "; ".join([f'{c["name"]}={c["value"]}' for c in cookies])
+        cookie_holder["cookie"] = cookie_str
+
+        browser.close()
+
+    return token_holder["token"], cookie_holder["cookie"]
 
 
 # ==============================
-# API CALL
+# API
 # ==============================
 
-def build_request_headers() -> Dict[str, str]:
+def build_request_headers(auth_token: str, cookie_str: str) -> Dict[str, str]:
     return {
-        "accept": "*/*",
-        "accept-language": "vi,en-US;q=0.9,en;q=0.8",
-        "authorization": SALEWORK_AUTHORIZATION,
+        "Accept": "*/*",
+        "Accept-Language": "vi,en-US;q=0.9,en;q=0.8",
+        "Authorization": auth_token,
         "companycode": SALEWORK_COMPANYCODE,
-        "content-type": "application/json",
-        "cookie": SALEWORK_COOKIE,
-        "origin": "https://finance.salework.net",
+        "Content-Type": "application/json",
+        "Cookie": cookie_str,
+        "Origin": "https://finance.salework.net",
         "platform": "web",
-        "priority": "u=1, i",
-        "referer": "https://finance.salework.net/adsExpenseTransaction",
-        "sec-fetch-dest": "empty",
-        "sec-fetch-mode": "cors",
-        "sec-fetch-site": "same-origin",
-        "user-agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/146.0.0.0 Safari/537.36"
-        ),
+        "Referer": "https://finance.salework.net/adsExpenseTransaction",
+        "User-Agent": "Mozilla/5.0",
     }
 
 
 def fetch_one_page(
     http_session: requests.Session,
+    auth_token: str,
+    cookie_str: str,
     date_from: str,
     date_to: str,
     start_page: int = 0,
@@ -175,7 +265,7 @@ def fetch_one_page(
         "channel": CHANNEL,
     }
 
-    headers = build_request_headers()
+    headers = build_request_headers(auth_token=auth_token, cookie_str=cookie_str)
 
     print("📤 PAYLOAD:", payload)
     resp = http_session.post(API_URL, headers=headers, json=payload, timeout=60)
@@ -199,11 +289,17 @@ def fetch_all_data(date_from: str, date_to: str) -> List[Dict[str, Any]]:
     start_page = 0
     page_size = 500
 
+    print("🔐 Đang đăng nhập Salework để lấy token mới...")
+    auth_token, cookie_str = get_salework_token_and_cookie()
+    print("✅ Đã lấy token và cookie mới")
+
     while True:
         print(f"📥 Fetch page {start_page}")
 
         data = fetch_one_page(
             http_session=http_session,
+            auth_token=auth_token,
+            cookie_str=cookie_str,
             date_from=date_from,
             date_to=date_to,
             start_page=start_page,
@@ -211,11 +307,29 @@ def fetch_all_data(date_from: str, date_to: str) -> List[Dict[str, Any]]:
         )
 
         if not data.get("success"):
-            raise RuntimeError(f"API lỗi: {data.get('message')}")
+            message = str(data.get("message", ""))
+
+            # token hết hạn giữa chừng thì login lại 1 lần
+            if "expired" in message.lower():
+                print("♻️ Token hết hạn, đang login lại...")
+                auth_token, cookie_str = get_salework_token_and_cookie()
+                data = fetch_one_page(
+                    http_session=http_session,
+                    auth_token=auth_token,
+                    cookie_str=cookie_str,
+                    date_from=date_from,
+                    date_to=date_to,
+                    start_page=start_page,
+                    page_size=page_size,
+                )
+
+            if not data.get("success"):
+                raise RuntimeError(f"API lỗi: {data.get('message')}")
 
         payload_data = data.get("data", {})
         items = payload_data.get("tableData", [])
         total = payload_data.get("total")
+
         print(f"✅ items len: {len(items)} | total: {total}")
 
         if not items:
@@ -227,7 +341,7 @@ def fetch_all_data(date_from: str, date_to: str) -> List[Dict[str, Any]]:
         if total and len(all_rows) >= total:
             print("✅ Reached total records, stop")
             break
-        
+
         start_page += 1
 
     return all_rows
@@ -237,13 +351,17 @@ def fetch_all_data(date_from: str, date_to: str) -> List[Dict[str, Any]]:
 # BIGQUERY
 # ==============================
 
-def ensure_table_exists(rows: List[Dict[str, Any]]) -> None:
+def ensure_table_exists() -> None:
     try:
         bq_client.get_table(table_ref)
         print(f"✅ Table exists: {table_ref}")
     except Exception:
-        print(f"⚠️ Table chưa tồn tại, tạo mới: {table_ref}")
-        schema = infer_bq_schema_from_rows(rows)
+        schema = [
+            bigquery.SchemaField("shopId", "STRING"),
+            bigquery.SchemaField("date", "DATE"),
+            bigquery.SchemaField("amount", "FLOAT64"),
+            bigquery.SchemaField("vat", "FLOAT64"),
+        ]
         table = bigquery.Table(table_ref, schema=schema)
         bq_client.create_table(table)
         print(f"✅ Created table: {table_ref}")
@@ -252,7 +370,7 @@ def ensure_table_exists(rows: List[Dict[str, Any]]) -> None:
 def delete_recent_rows() -> None:
     query = f"""
     DELETE FROM `{table_ref}`
-    WHERE DATE(date) >= DATE_SUB(CURRENT_DATE("Asia/Ho_Chi_Minh"), INTERVAL 1 DAY)
+    WHERE date >= DATE_SUB(CURRENT_DATE("Asia/Ho_Chi_Minh"), INTERVAL 1 DAY)
     """
     print("🧹 Deleting yesterday and today...")
     bq_client.query(query).result()
@@ -262,37 +380,31 @@ def delete_recent_rows() -> None:
 def load_to_bigquery(rows: List[Dict[str, Any]]) -> None:
     normalized_rows = []
 
-    today_vn = now_vn().date()
-    
     for row in rows:
-        # xử lý date
-        date_value = row.get("date")
-    
-        if not date_value:
-            if row.get("created_at"):
-                date_value = str(row["created_at"])[:10]
-            elif row.get("transactionDate"):
-                date_value = str(row["transactionDate"])[:10]
-            else:
-                date_value = str(today_vn)
-    
         normalized_rows.append({
             "shopId": str(row.get("shopId", "")),
-            "date": str(date_value)[:10],
-            "amount": float(row.get("amount", 0)) if row.get("amount") else None,
-            "vat": float(row.get("vat", 0)) if row.get("vat") else None,
+            "date": extract_date(row),
+            "amount": safe_float(row.get("amount")),
+            "vat": safe_float(row.get("vat")),
         })
+
+    ensure_table_exists()
 
     job = bq_client.load_table_from_json(
         normalized_rows,
         table_ref,
         job_config=bigquery.LoadJobConfig(
-            write_disposition="WRITE_APPEND"
-        )
+            write_disposition="WRITE_APPEND",
+            schema=[
+                bigquery.SchemaField("shopId", "STRING"),
+                bigquery.SchemaField("date", "DATE"),
+                bigquery.SchemaField("amount", "FLOAT64"),
+                bigquery.SchemaField("vat", "FLOAT64"),
+            ],
+        ),
     )
-    
-    job.result()  # đợi job chạy xong
-    
+    job.result()
+
     print(f"✅ Loaded {len(normalized_rows)} rows into {table_ref}")
 
 
@@ -311,7 +423,6 @@ def main():
     print("📅 DATE_TO  :", date_to)
 
     rows = fetch_all_data(date_from=date_from, date_to=date_to)
-
     print(f"📦 Total rows fetched: {len(rows)}")
 
     if not rows:
