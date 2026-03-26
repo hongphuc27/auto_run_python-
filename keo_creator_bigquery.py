@@ -87,15 +87,8 @@ def run():
     all_rows = []
 
     now_vn = datetime.now(tz=tz_vn)
-
-    # start_date = (now_vn - timedelta(days=1)).replace(tzinfo=None)
-    # end_date = now_vn.replace(tzinfo=None)
-
-    start_date = now_vn.replace(day=1).replace(tzinfo=None)
+    start_date = (now_vn - timedelta(days=6)).replace(tzinfo=None)
     end_date = now_vn.replace(tzinfo=None)
-
-    # start_date = datetime(2026, 2, 1)
-    # end_date = datetime(2026, 2, 28)
 
     current_date = start_date
 
