@@ -202,7 +202,6 @@ def fetch_orders(token, cookie_str):
             raise RuntimeError(f"API error: {data.get('error')}")
 
         orders = data.get("orders", [])
-        print(f"✅ start={start} | fetched={len(orders)}")
 
         if not orders:
             break
@@ -257,7 +256,7 @@ def build_dataframe(orders):
 # Xóa dữ liệu
 # ========================================
 
-def delete_last__days():
+def delete_last_22_days():
     start_day_vn = datetime.now(VN_TZ).date() - timedelta(days=22)
     start_dt_vn = datetime.combine(start_day_vn, datetime.min.time(), tzinfo=VN_TZ)
 
