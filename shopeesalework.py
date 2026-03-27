@@ -71,7 +71,8 @@ def build_date_range():
     date_from = start_dt_vn.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     date_to = end_dt_vn.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.999Z")
     return date_from, date_to
-
+    
+DATE_FROM, DATE_TO = build_date_range()
 
 # ==============================
 # VALIDATE
