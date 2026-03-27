@@ -123,15 +123,12 @@ def get_real_token_and_cookie():
                         and params.get("channel") == CHANNEL
                     ):
                         captured["token"] = real_token
-                        print("✅ Captured REAL JWT token")
+                        # print("✅ Captured REAL JWT token")
                 except Exception:
                     pass
 
         page.on("request", handle_request)
 
-        print("🔐 Logging in Salework...")
-        print("SALEWORK_EMAIL loaded:", bool(SALEWORK_EMAIL))
-        print("SALEWORK_PASSWORD loaded:", bool(SALEWORK_PASSWORD))
 
         page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(3000)
@@ -148,7 +145,7 @@ def get_real_token_and_cookie():
         page.goto(ORDERS_URL, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(8000)
 
-        print("🌐 Current URL:", page.url)
+        # print("🌐 Current URL:", page.url)
 
         if not captured["token"]:
             page.reload(wait_until="domcontentloaded", timeout=60000)
