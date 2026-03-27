@@ -163,7 +163,7 @@ def get_salework_token_and_cookie():
             if not token:
                 raise RuntimeError("Không lấy được token sau khi đăng nhập")
 
-            cookie_str = "; ".join([f'{c['name']}={c['value']}' for c in cookies])
+            cookie_str = "; ".join([c["name"] + "=" + c["value"] for c in cookies])
             return token, cookie_str
 
         finally:
