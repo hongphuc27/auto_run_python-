@@ -13,6 +13,7 @@ pandas
 pyarrow
 selenium
 webdriver-manager
+playwright
 
 
 
