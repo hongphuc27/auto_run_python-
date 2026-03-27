@@ -40,7 +40,7 @@ now_utc = datetime.now(timezone.utc)
 DATE_FROM = (now_utc - timedelta(days=35)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 DATE_TO = now_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
-# Test ngắn hơn nếu cần:
+# test ngắn hơn nếu cần
 # DATE_FROM = (now_utc - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 # DATE_TO = now_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
@@ -87,209 +87,53 @@ def validate_env():
 
 
 # ==============================
-# LOGIN + GET AUTH TOKEN + COOKIE
+# LOGIN
 # ==============================
-def get_salework_auth():
-    result = {
-        "auth_token": None,
-        "cookie_str": None
-    }
+def login_and_get_page():
+    p = sync_playwright().start()
+    browser = p.chromium.launch(
+        headless=True,
+        args=["--no-sandbox", "--disable-dev-shm-usage"]
+    )
+    context = browser.new_context()
+    page = context.new_page()
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"]
-        )
-        context = browser.new_context()
+    print("🔐 Logging in Salework...")
+    print("SALEWORK_EMAIL loaded:", bool(SALEWORK_EMAIL))
+    print("SALEWORK_PASSWORD loaded:", bool(SALEWORK_PASSWORD))
+    print("SALEWORK_COMPANYCODE loaded:", bool(SALEWORK_COMPANYCODE))
 
-        # Hook fetch + XHR để bắt Authorization header do chính app Salework gắn vào
-        context.add_init_script("""
-            (() => {
-                window.__capturedAuthToken = null;
+    page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
+    page.wait_for_timeout(3000)
 
-                const origFetch = window.fetch;
-                window.fetch = async (...args) => {
-                    try {
-                        const init = args[1] || {};
-                        const headers = init.headers || {};
-                        let auth = null;
+    page.locator('input[type="text"]').first.fill(SALEWORK_EMAIL)
+    page.locator('input[type="password"]').first.fill(SALEWORK_PASSWORD)
+    page.locator('button[type="submit"]').first.click()
 
-                        if (headers instanceof Headers) {
-                            auth = headers.get('Authorization') || headers.get('authorization');
-                        } else if (Array.isArray(headers)) {
-                            for (const [k, v] of headers) {
-                                if (String(k).toLowerCase() === 'authorization') {
-                                    auth = v;
-                                    break;
-                                }
-                            }
-                        } else {
-                            auth = headers.Authorization || headers.authorization || null;
-                        }
+    try:
+        page.wait_for_load_state("networkidle", timeout=30000)
+    except PlaywrightTimeoutError:
+        pass
 
-                        if (auth && !window.__capturedAuthToken) {
-                            window.__capturedAuthToken = auth;
-                        }
-                    } catch (e) {}
-                    return origFetch(...args);
-                };
+    page.goto(ORDERS_URL, wait_until="domcontentloaded", timeout=60000)
 
-                const origOpen = XMLHttpRequest.prototype.open;
-                const origSetHeader = XMLHttpRequest.prototype.setRequestHeader;
+    try:
+        page.wait_for_load_state("networkidle", timeout=30000)
+    except PlaywrightTimeoutError:
+        pass
 
-                XMLHttpRequest.prototype.open = function(...args) {
-                    this.__headers = {};
-                    return origOpen.apply(this, args);
-                };
+    page.wait_for_timeout(5000)
+    print("🌐 Current URL:", page.url)
 
-                XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
-                    try {
-                        this.__headers[name] = value;
-                        if (String(name).toLowerCase() === 'authorization' && !window.__capturedAuthToken) {
-                            window.__capturedAuthToken = value;
-                        }
-                    } catch (e) {}
-                    return origSetHeader.apply(this, arguments);
-                };
-            })();
-        """)
-
-        page = context.new_page()
-
-        try:
-            print("🔐 Logging in Salework and getting latest token...")
-            print("SALEWORK_EMAIL loaded:", bool(SALEWORK_EMAIL))
-            print("SALEWORK_PASSWORD loaded:", bool(SALEWORK_PASSWORD))
-            print("SALEWORK_COMPANYCODE loaded:", bool(SALEWORK_COMPANYCODE))
-
-            page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(3000)
-
-            page.locator('input[type="text"]').first.fill(SALEWORK_EMAIL)
-            page.locator('input[type="password"]').first.fill(SALEWORK_PASSWORD)
-            page.locator('button[type="submit"]').first.click()
-
-            try:
-                page.wait_for_load_state("networkidle", timeout=30000)
-            except PlaywrightTimeoutError:
-                pass
-
-            page.goto(ORDERS_URL, wait_until="domcontentloaded", timeout=60000)
-
-            try:
-                page.wait_for_load_state("networkidle", timeout=30000)
-            except PlaywrightTimeoutError:
-                pass
-
-            page.wait_for_timeout(8000)
-            print("🌐 Current URL:", page.url)
-
-            # reload 1 lần để app tự bắn request nội bộ
-            page.reload(wait_until="domcontentloaded", timeout=60000)
-            try:
-                page.wait_for_load_state("networkidle", timeout=30000)
-            except PlaywrightTimeoutError:
-                pass
-            page.wait_for_timeout(5000)
-
-            # 1) ưu tiên token app tự gắn vào request
-            auth_token = page.evaluate("() => window.__capturedAuthToken")
-
-            # 2) fallback: quét localStorage
-            if not auth_token:
-                try:
-                    local_storage = json.loads(page.evaluate("() => JSON.stringify(window.localStorage)"))
-                    print("🧪 localStorage keys:", list(local_storage.keys()))
-                    for key, value in local_storage.items():
-                        if not value:
-                            continue
-
-                        # key chứa token
-                        if "token" in key.lower():
-                            auth_token = value
-                            break
-
-                        # value là JSON chứa token
-                        try:
-                            parsed = json.loads(value) if isinstance(value, str) else value
-                            if isinstance(parsed, dict):
-                                for k2, v2 in parsed.items():
-                                    if "token" in str(k2).lower() and v2:
-                                        auth_token = v2
-                                        break
-                        except Exception:
-                            pass
-
-                        if auth_token:
-                            break
-                except Exception:
-                    pass
-
-            # 3) fallback: quét sessionStorage
-            if not auth_token:
-                try:
-                    session_storage = json.loads(page.evaluate("() => JSON.stringify(window.sessionStorage)"))
-                    print("🧪 sessionStorage keys:", list(session_storage.keys()))
-                    for key, value in session_storage.items():
-                        if not value:
-                            continue
-
-                        if "token" in key.lower():
-                            auth_token = value
-                            break
-
-                        try:
-                            parsed = json.loads(value) if isinstance(value, str) else value
-                            if isinstance(parsed, dict):
-                                for k2, v2 in parsed.items():
-                                    if "token" in str(k2).lower() and v2:
-                                        auth_token = v2
-                                        break
-                        except Exception:
-                            pass
-
-                        if auth_token:
-                            break
-                except Exception:
-                    pass
-
-            if auth_token and not str(auth_token).startswith("Bearer "):
-                auth_token = f"Bearer {auth_token}"
-
-            if not auth_token:
-                raise RuntimeError("Không bắt được Authorization token sau khi đăng nhập")
-
-            cookies = context.cookies()
-            cookie_str = "; ".join([f'{c["name"]}={c["value"]}' for c in cookies])
-
-            print("✅ Got latest token")
-            return auth_token, cookie_str
-
-        finally:
-            browser.close()
+    return p, browser, context, page
 
 
 # ==============================
-# BUILD REQUEST HEADERS
+# FETCH DATA IN BROWSER SESSION
 # ==============================
-def build_order_headers(auth_token, cookie_str):
-    headers = HEADERS_BASE.copy()
-    headers.update({
-        "Authorization": auth_token,
-        "companycode": SALEWORK_COMPANYCODE,
-        "platform": "web",
-        "Cookie": cookie_str,
-    })
-    return headers
-
-
-# ==============================
-# FETCH DATA
-# ==============================
-def fetch_orders(auth_token, cookie_str):
+def fetch_orders_via_browser(page):
     all_orders = []
     start = 0
-    session = requests.Session()
 
     while True:
         payload = {
@@ -307,17 +151,61 @@ def fetch_orders(auth_token, cookie_str):
             }
         }
 
-        headers = build_order_headers(auth_token, cookie_str)
-
         print(f"📥 Fetch start={start}")
 
-        response = session.post(BASE_URL, headers=headers, json=payload, timeout=60)
+        result = page.evaluate(
+            """
+            async ({ url, payload, companycode }) => {
+                try {
+                    const res = await fetch(url, {
+                        method: "POST",
+                        credentials: "include",
+                        headers: {
+                            "accept": "application/json, text/plain, */*",
+                            "content-type": "application/json",
+                            "companycode": companycode,
+                            "platform": "web"
+                        },
+                        body: JSON.stringify(payload)
+                    });
 
-        print("STATUS:", response.status_code)
-        print("RESPONSE:", response.text[:1000])
+                    const text = await res.text();
+                    let jsonData = null;
 
-        response.raise_for_status()
-        data = response.json()
+                    try {
+                        jsonData = JSON.parse(text);
+                    } catch (e) {}
+
+                    return {
+                        ok: res.ok,
+                        status: res.status,
+                        text: text,
+                        data: jsonData
+                    };
+                } catch (e) {
+                    return {
+                        ok: false,
+                        status: 0,
+                        text: String(e),
+                        data: null
+                    };
+                }
+            }
+            """,
+            {
+                "url": BASE_URL,
+                "payload": payload,
+                "companycode": SALEWORK_COMPANYCODE
+            }
+        )
+
+        print("STATUS:", result["status"])
+        print("RESPONSE:", result["text"][:1000])
+
+        if not result["ok"]:
+            raise RuntimeError(f"Browser fetch failed: {result['text']}")
+
+        data = result.get("data") or {}
 
         if data.get("error"):
             raise RuntimeError(f"API error: {data.get('error')}")
@@ -413,27 +301,40 @@ def main():
 
     validate_env()
 
-    auth_token, cookie_str = get_salework_auth()
-    orders = fetch_orders(auth_token, cookie_str)
+    p = browser = context = page = None
 
-    print(f"\n📦 Total orders: {len(orders)}")
+    try:
+        p, browser, context, page = login_and_get_page()
+        orders = fetch_orders_via_browser(page)
 
-    if not orders:
-        print("⚠️ No data")
-        return
+        print(f"\n📦 Total orders: {len(orders)}")
 
-    df = build_dataframe(orders)
+        if not orders:
+            print("⚠️ No data")
+            return
 
-    if df.empty:
-        print("⚠️ DataFrame rỗng")
-        return
+        df = build_dataframe(orders)
 
-    print("\n📊 Columns:", list(df.columns))
-    print("🧾 Rows:", len(df))
-    print(df.head(3))
+        if df.empty:
+            print("⚠️ DataFrame rỗng")
+            return
 
-    delete_last_35_days()
-    load_to_bigquery(df)
+        print("\n📊 Columns:", list(df.columns))
+        print("🧾 Rows:", len(df))
+        print(df.head(3))
+
+        delete_last_35_days()
+        load_to_bigquery(df)
+
+    finally:
+        if page:
+            page.close()
+        if context:
+            context.close()
+        if browser:
+            browser.close()
+        if p:
+            p.stop()
 
 
 if __name__ == "__main__":
