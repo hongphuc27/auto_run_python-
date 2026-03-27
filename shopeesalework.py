@@ -166,9 +166,12 @@ def get_real_token_and_cookie():
 # ==============================
 # FETCH ORDERS
 # ==============================
-def fetch_orders():
+def fetch_orders(token, cookie_str):
     all_orders = []
     start = 0
+
+    headers = HEADERS.copy()
+    headers["Cookie"] = cookie_str
 
     while True:
         payload = {
@@ -184,13 +187,26 @@ def fetch_orders():
                 "timeend": DATE_TO,
                 "typeCreated": "createdAt"
             },
-            "token": TOKEN
+            "token": token
         }
 
         print(f"📥 Fetch start={start}")
 
-        r = requests.post(BASE_URL, headers=HEADERS, json=payload, timeout=30)
-        data = r.json()
+        retry = 0
+        while True:
+            try:
+                r = requests.post(BASE_URL, headers=headers, json=payload, timeout=60)
+                r.raise_for_status()
+                data = r.json()
+                break
+            except Exception as e:
+                retry += 1
+                print(f"⚠️ retry {retry}: {e}")
+
+                if retry >= 5:
+                    raise
+
+                time.sleep(2 * retry)
 
         orders = data.get("orders", [])
 
@@ -198,8 +214,12 @@ def fetch_orders():
             break
 
         all_orders.extend(orders)
+
+        if len(orders) < PAGE_SIZE:
+            break
+
         start += PAGE_SIZE
-        time.sleep(0.05)
+        time.sleep(0.1)  # giảm load server
 
     return all_orders
 
@@ -276,9 +296,10 @@ def main():
     validate_env()
 
     token, cookie_str = get_real_token_and_cookie()
-    print("🔑 REAL TOKEN PREVIEW:", token[:60])
+    print("🔑 TOKEN:", token[:50])
 
     orders = fetch_orders(token, cookie_str)
+
     print(f"📦 Total orders: {len(orders)}")
 
     if not orders:
