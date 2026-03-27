@@ -7,27 +7,10 @@ from datetime import datetime, timedelta, timezone
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from google.oauth2 import service_account
 from google.cloud import bigquery
-import urllib.parse
-import base64
-
-
-def decode_evn_token(evn_token):
-    try:
-        # B1: base64 decode trước
-        decoded_b64 = base64.b64decode(evn_token).decode("utf-8")
-
-        # B2: rồi mới URL decode
-        decoded_str = urllib.parse.unquote(decoded_b64)
-
-        return decoded_str
-    except Exception as e:
-        print("❌ Decode token failed:", str(e))
-        return None
-
 
 
 # ==============================
-# SALEWORK CONFIG
+# CONFIG
 # ==============================
 LOGIN_URL = "https://salework.net/login"
 ORDERS_URL = "https://stock.salework.net/orders"
@@ -35,12 +18,11 @@ BASE_URL = "https://stock.salework.net/api/v2/order"
 
 SALEWORK_EMAIL = os.getenv("SALEWORK_EMAIL", "").strip()
 SALEWORK_PASSWORD = os.getenv("SALEWORK_PASSWORD", "").strip()
-SALEWORK_COMPANYCODE = os.getenv("SALEWORK_COMPANYCODE", "").strip()
 
 COMPANY_ID = "sw30871"
 CHANNEL = "Shopee"
-STATE = ""
-PAGE_SIZE = 500
+STATE = "MỚI"
+PAGE_SIZE = 25
 
 HEADERS_BASE = {
     "Accept": "*/*",
@@ -52,25 +34,17 @@ HEADERS_BASE = {
     "platform": "stock_webapp",
 }
 
+# đúng theo pattern request thật: từ 00:00 VN -> 23:59:59.999 VN
+VN_TZ = timezone(timedelta(hours=7))
+today_vn = datetime.now(VN_TZ).date()
+start_day = today_vn - timedelta(days=6)
 
-# ==============================
-# DATE RANGE
-# ==============================
-now_utc = datetime.now(timezone.utc)
-DATE_FROM = (now_utc - timedelta(days=35)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-DATE_TO = now_utc.strftime("%Y-%m-%dT%H:%M:%S.999Z")
+DATE_FROM = datetime.combine(start_day, datetime.min.time(), tzinfo=VN_TZ).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+DATE_TO = datetime.combine(today_vn, datetime.max.time().replace(microsecond=999000), tzinfo=VN_TZ).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.999Z")
 
-# test ngắn hơn nếu cần
-# DATE_FROM = (now_utc - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-# DATE_TO = now_utc.strftime("%Y-%m-%dT%H:%M:%S.999Z")
-
-
-# ==============================
-# BIGQUERY CONFIG
-# ==============================
 PROJECT_ID = "rhysman-data-warehouse-488306"
 DATASET_ID = "rhysman"
-TABLE_ID = "fact_orders_salework_shopee"
+TABLE_ID = "fact_orders_salework_tiktok"
 
 gcp_key_raw = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
 if not gcp_key_raw:
@@ -78,38 +52,33 @@ if not gcp_key_raw:
 
 gcp_key = json.loads(gcp_key_raw)
 credentials = service_account.Credentials.from_service_account_info(gcp_key)
-
-client = bigquery.Client(
-    credentials=credentials,
-    project=PROJECT_ID
-)
-
+client = bigquery.Client(credentials=credentials, project=PROJECT_ID)
 table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
 
 
 # ==============================
-# VALIDATE ENV
+# VALIDATE
 # ==============================
 def validate_env():
     missing = []
-
     if not SALEWORK_EMAIL:
         missing.append("SALEWORK_EMAIL")
     if not SALEWORK_PASSWORD:
         missing.append("SALEWORK_PASSWORD")
-    if not SALEWORK_COMPANYCODE:
-        missing.append("SALEWORK_COMPANYCODE")
     if not gcp_key_raw:
         missing.append("GOOGLE_SERVICE_ACCOUNT_JSON")
-
     if missing:
         raise ValueError(f"Thiếu environment variables: {', '.join(missing)}")
 
 
 # ==============================
-# LOGIN -> TOKEN + COOKIE
+# LOGIN + CAPTURE REAL JWT TOKEN
 # ==============================
-def get_salework_token_and_cookie():
+def get_real_token_and_cookie():
+    captured = {
+        "token": None
+    }
+
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
@@ -118,75 +87,59 @@ def get_salework_token_and_cookie():
         context = browser.new_context()
         page = context.new_page()
 
+        def handle_request(request):
+            if request.url.startswith(BASE_URL):
+                try:
+                    post_data = request.post_data
+                    if not post_data:
+                        return
+
+                    body = json.loads(post_data)
+                    real_token = body.get("token")
+
+                    params = body.get("params", {})
+                    if (
+                        body.get("method") == "getOrderList"
+                        and real_token
+                        and params.get("channel") == CHANNEL
+                    ):
+                        captured["token"] = real_token
+                        print("✅ Captured REAL JWT token")
+                except Exception:
+                    pass
+
+        page.on("request", handle_request)
+
+        print("🔐 Logging in Salework...")
+        page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(3000)
+
+        page.locator('input[type="text"]').first.fill(SALEWORK_EMAIL)
+        page.locator('input[type="password"]').first.fill(SALEWORK_PASSWORD)
+        page.locator('button[type="submit"]').first.click()
+
         try:
-            print("🔐 Logging in Salework...")
-            print("SALEWORK_EMAIL loaded:", bool(SALEWORK_EMAIL))
-            print("SALEWORK_PASSWORD loaded:", bool(SALEWORK_PASSWORD))
-            print("SALEWORK_COMPANYCODE loaded:", bool(SALEWORK_COMPANYCODE))
+            page.wait_for_load_state("networkidle", timeout=30000)
+        except PlaywrightTimeoutError:
+            pass
 
-            page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(3000)
+        page.goto(ORDERS_URL, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(8000)
 
-            page.locator('input[type="text"]').first.fill(SALEWORK_EMAIL)
-            page.locator('input[type="password"]').first.fill(SALEWORK_PASSWORD)
-            page.locator('button[type="submit"]').first.click()
+        print("🌐 Current URL:", page.url)
 
-            try:
-                page.wait_for_load_state("networkidle", timeout=30000)
-            except PlaywrightTimeoutError:
-                pass
+        # nếu trang chưa tự bắn request thì reload thêm 1 lần
+        if not captured["token"]:
+            page.reload(wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(8000)
 
-            page.goto(ORDERS_URL, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(5000)
+        if not captured["token"]:
+            raise RuntimeError("Không bắt được REAL JWT token từ request thật của /orders")
 
-            print("🌐 Current URL:", page.url)
+        cookies = context.cookies()
+        cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
 
-            cookies = context.cookies()
-            token = None
-
-            # Ưu tiên token trong cookie evn-token
-            for c in cookies:
-                if c["name"] == "evn-token" and c["value"]:
-                    raw_token = c["value"]
-                    token = decode_evn_token(raw_token)
-                    print("✅ Found token in cookie: evn-token")
-                    print("✅ Decoded token preview:", token[:50] if token else None)
-                    break
-
-            # Fallback localStorage
-            if not token:
-                try:
-                    local_storage = json.loads(page.evaluate("() => JSON.stringify(window.localStorage)"))
-                    print("🧪 localStorage keys:", list(local_storage.keys()))
-                    for key, value in local_storage.items():
-                        if "token" in key.lower() and value:
-                            token = value
-                            print(f"✅ Found token in localStorage: {key}")
-                            break
-                except Exception:
-                    pass
-
-            # Fallback sessionStorage
-            if not token:
-                try:
-                    session_storage = json.loads(page.evaluate("() => JSON.stringify(window.sessionStorage)"))
-                    print("🧪 sessionStorage keys:", list(session_storage.keys()))
-                    for key, value in session_storage.items():
-                        if "token" in key.lower() and value:
-                            token = value
-                            print(f"✅ Found token in sessionStorage: {key}")
-                            break
-                except Exception:
-                    pass
-
-            if not token:
-                raise RuntimeError("Không lấy được token sau khi đăng nhập")
-
-            cookie_str = "; ".join([c["name"] + "=" + c["value"] for c in cookies])
-            return token, cookie_str
-
-        finally:
-            browser.close()
+        return captured["token"], cookie_str
 
 
 # ==============================
@@ -245,14 +198,14 @@ def fetch_orders(token, cookie_str):
 
 
 # ==============================
-# TRANSFORM DATA
+# TRANSFORM
 # ==============================
 def build_dataframe(orders):
     rows = []
 
     for order in orders:
         item_price = (
-            order.get("shopee", {})
+            order.get("tiktok", {})
             .get("escrowDetails", {})
             .get("cost_of_goods_sold")
         )
@@ -260,7 +213,7 @@ def build_dataframe(orders):
         rows.append({
             "_id": order.get("_id"),
             "code": order.get("code"),
-            "shopeeShopId": str(order.get("shopeeShopId")),
+            "shopId": str(order.get("shopId") or order.get("tiktokShopId") or ""),
             "city": order.get("customer", {}).get("city"),
             "customer_state": order.get("customer", {}).get("state"),
             "order_state": order.get("state"),
@@ -284,62 +237,45 @@ def build_dataframe(orders):
 # BIGQUERY
 # ==============================
 def delete_last_35_days():
-    print("\n🧹 Deleting last 35 days in BigQuery...")
-
     delete_query = f"""
         DELETE FROM `{table_ref}`
         WHERE createdAt >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 35 DAY)
     """
-
     client.query(delete_query).result()
     print("✅ Delete done")
 
 
 def load_to_bigquery(df):
-    print("\n💾 Loading to BigQuery...")
-
-    job_config = bigquery.LoadJobConfig(
-        write_disposition="WRITE_APPEND"
-    )
-
-    job = client.load_table_from_dataframe(
-        df,
-        table_ref,
-        job_config=job_config
-    )
-
+    job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
+    job = client.load_table_from_dataframe(df, table_ref, job_config=job_config)
     job.result()
-    print("✅ DONE LOAD SHOPEE → BIGQUERY")
+    print("✅ DONE LOAD TO BIGQUERY")
 
 
 # ==============================
 # MAIN
 # ==============================
 def main():
-    print("\n🚀 START SALEWORK SHOPEE → BIGQUERY ETL\n")
-    print(f"🗓️ DATE_FROM: {DATE_FROM}")
-    print(f"🗓️ DATE_TO  : {DATE_TO}")
+    print("\n🚀 START SALEWORK TIKTOK → BIGQUERY ETL\n")
+    print(f"DATE_FROM: {DATE_FROM}")
+    print(f"DATE_TO  : {DATE_TO}")
 
     validate_env()
 
-    token, cookie_str = get_salework_token_and_cookie()
-    orders = fetch_orders(token, cookie_str)
+    token, cookie_str = get_real_token_and_cookie()
+    print("🔑 REAL TOKEN PREVIEW:", token[:60])
 
-    print(f"\n📦 Total orders: {len(orders)}")
+    orders = fetch_orders(token, cookie_str)
+    print(f"📦 Total orders: {len(orders)}")
 
     if not orders:
         print("⚠️ No data")
         return
 
     df = build_dataframe(orders)
-
     if df.empty:
         print("⚠️ DataFrame rỗng")
         return
-
-    print("\n📊 Columns:", list(df.columns))
-    print("🧾 Rows:", len(df))
-    print(df.head(3))
 
     delete_last_35_days()
     load_to_bigquery(df)
