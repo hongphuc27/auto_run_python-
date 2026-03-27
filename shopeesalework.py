@@ -13,9 +13,12 @@ import base64
 
 def decode_evn_token(evn_token):
     try:
-        decoded_url = urllib.parse.unquote(evn_token)
-        decoded_bytes = base64.b64decode(decoded_url)
-        decoded_str = decoded_bytes.decode("utf-8")
+        # B1: base64 decode trước
+        decoded_b64 = base64.b64decode(evn_token).decode("utf-8")
+
+        # B2: rồi mới URL decode
+        decoded_str = urllib.parse.unquote(decoded_b64)
+
         return decoded_str
     except Exception as e:
         print("❌ Decode token failed:", str(e))
