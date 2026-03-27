@@ -59,7 +59,7 @@ VN_TZ = timezone(timedelta(hours=7))
 
 def build_date_range():
     today_vn = datetime.now(VN_TZ).date()
-    start_day_vn = today_vn - timedelta(days=5)
+    start_day_vn = today_vn - timedelta(days=22)
 
     start_dt_vn = datetime.combine(start_day_vn, datetime.min.time(), tzinfo=VN_TZ)
     end_dt_vn = datetime.combine(
@@ -71,9 +71,6 @@ def build_date_range():
     date_from = start_dt_vn.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     date_to = end_dt_vn.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.999Z")
     return date_from, date_to
-
-
-DATE_FROM, DATE_TO = build_date_range()
 
 
 # ==============================
@@ -194,12 +191,8 @@ def fetch_orders(token, cookie_str):
         headers["Cookie"] = cookie_str
 
         print(f"📥 Fetch start={start}")
-        print("PAYLOAD:", json.dumps(payload, ensure_ascii=False))
 
         response = session.post(BASE_URL, headers=headers, json=payload, timeout=60)
-
-        print("STATUS:", response.status_code)
-        print("RESPONSE:", response.text[:1000])
 
         response.raise_for_status()
         data = response.json()
@@ -240,7 +233,7 @@ def build_dataframe(orders):
         rows.append({
             "_id": order.get("_id"),
             "code": order.get("code"),
-            "shopId": str(order.get("shopeeShopId") or order.get("shopId") or ""),
+            "shopeeShopId": str(order.get("shopeeShopId")),
             "city": order.get("customer", {}).get("city"),
             "customer_state": order.get("customer", {}).get("state"),
             "order_state": order.get("state"),
@@ -258,6 +251,22 @@ def build_dataframe(orders):
     df["price"] = pd.to_numeric(df["price"], errors="coerce")
 
     return df
+
+# ========================================
+# Xóa dữ liệu
+# ========================================
+
+def delete_last__days():
+    start_day_vn = datetime.now(VN_TZ).date() - timedelta(days=22)
+    start_dt_vn = datetime.combine(start_day_vn, datetime.min.time(), tzinfo=VN_TZ)
+
+    delete_query = f"""
+        DELETE FROM `{table_ref}`
+        WHERE createdAt >= TIMESTAMP('{start_dt_vn.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S+00:00")}')
+    """
+
+    client.query(delete_query).result()
+    print("✅ Deleted last 22 days data in BigQuery")
 
 
 # ==============================
@@ -296,11 +305,5 @@ def main():
         print("⚠️ DataFrame rỗng")
         return
 
-    print("📊 Rows:", len(df))
-    print(df.head(3))
-
+    delete_last_22_days()
     load_to_bigquery(df)
-
-
-if __name__ == "__main__":
-    main()
