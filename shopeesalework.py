@@ -40,7 +40,7 @@ now_utc = datetime.now(timezone.utc)
 DATE_FROM = (now_utc - timedelta(days=35)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 DATE_TO = now_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
-# Nếu muốn test ít ngày hơn thì dùng:
+# test ngắn hơn nếu cần
 # DATE_FROM = (now_utc - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 # DATE_TO = now_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
@@ -54,7 +54,7 @@ TABLE_ID = "fact_orders_salework_shopee"
 
 gcp_key_raw = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
 if not gcp_key_raw:
-    raise ValueError("Thiếu GOOGLE_SERVICE_ACCOUNT_JSON trong environment variables")
+    raise ValueError("Thiếu GOOGLE_SERVICE_ACCOUNT_JSON")
 
 gcp_key = json.loads(gcp_key_raw)
 credentials = service_account.Credentials.from_service_account_info(gcp_key)
@@ -112,7 +112,7 @@ def get_salework_auth():
         page.on("request", handle_request)
 
         try:
-            print("🔐 Logging in SaleWork and getting latest token...")
+            print("🔐 Logging in Salework and getting latest token...")
             print("SALEWORK_EMAIL loaded:", bool(SALEWORK_EMAIL))
             print("SALEWORK_PASSWORD loaded:", bool(SALEWORK_PASSWORD))
             print("SALEWORK_COMPANYCODE loaded:", bool(SALEWORK_COMPANYCODE))
@@ -137,23 +137,19 @@ def get_salework_auth():
                 pass
 
             page.wait_for_timeout(5000)
-
             print("🌐 Current URL:", page.url)
 
-            # Fallback 1: localStorage
             if not token_holder["token"]:
                 try:
                     local_storage = json.loads(page.evaluate("() => JSON.stringify(window.localStorage)"))
                     print("🧪 localStorage keys:", list(local_storage.keys()))
                     raw_token = local_storage.get("evn-token")
-
                     if raw_token:
                         token_holder["token"] = f"Bearer {raw_token}"
-                        print("✅ Found token in cookie/localStorage key: evn-token")
+                        print("✅ Found token in localStorage: evn-token")
                 except Exception:
                     pass
 
-            # Fallback 2: sessionStorage
             if not token_holder["token"]:
                 try:
                     session_storage = json.loads(page.evaluate("() => JSON.stringify(window.sessionStorage)"))
@@ -167,7 +163,7 @@ def get_salework_auth():
                     pass
 
             if not token_holder["token"]:
-                raise RuntimeError("Không lấy được auth token sau khi đăng nhập.")
+                raise RuntimeError("Không lấy được auth token sau khi đăng nhập")
 
             cookies = context.cookies()
             cookie_str = "; ".join([f'{c["name"]}={c["value"]}' for c in cookies])
@@ -188,7 +184,7 @@ def build_order_headers(auth_token, cookie_str):
         "Authorization": auth_token,
         "companycode": SALEWORK_COMPANYCODE,
         "platform": "web",
-        "Cookie": cookie_str
+        "Cookie": cookie_str,
     })
     return headers
 
@@ -229,9 +225,8 @@ def fetch_orders(auth_token, cookie_str):
         print("STATUS:", response.status_code)
         print("RESPONSE:", response.text[:1000])
 
-        # nếu token hết hạn thì login lại 1 lần
         if response.status_code in [401, 403]:
-            print("🔄 Unauthorized. Re-login to refresh token...")
+            print("🔄 Unauthorized. Re-login...")
             auth_token, cookie_str = get_salework_auth()
             raw_token = auth_token.replace("Bearer ", "", 1) if auth_token.startswith("Bearer ") else auth_token
             payload["token"] = raw_token
@@ -336,8 +331,8 @@ def main():
     validate_env()
 
     auth_token, cookie_str = get_salework_auth()
-
     orders = fetch_orders(auth_token, cookie_str)
+
     print(f"\n📦 Total orders: {len(orders)}")
 
     if not orders:
