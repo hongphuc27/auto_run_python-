@@ -1,34 +1,30 @@
-import requests
-import pandas as pd
-import time
-from datetime import datetime, timedelta, timezone
-from google.oauth2 import service_account
-from google.cloud import bigquery
-from playwright.sync_api import sync_playwright
 import os
 import json
+import time
+import requests
+import pandas as pd
+from datetime import datetime, timedelta, timezone
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from google.oauth2 import service_account
+from google.cloud import bigquery
 
 
 # ==============================
 # SALEWORK CONFIG
 # ==============================
-BASE_URL = "https://stock.salework.net/api/v2/order"
-LOGIN_URL = "https://stock.salework.net/login"
+LOGIN_URL = "https://salework.net/login"
 ORDERS_URL = "https://stock.salework.net/orders"
+BASE_URL = "https://stock.salework.net/api/v2/order"
+
+SALEWORK_EMAIL = os.getenv("SALEWORK_EMAIL", "").strip()
+SALEWORK_PASSWORD = os.getenv("SALEWORK_PASSWORD", "").strip()
+SALEWORK_COMPANYCODE = os.getenv("SALEWORK_COMPANYCODE", "").strip()
 
 COMPANY_ID = "sw30871"
 CHANNEL = "Shopee"
 PAGE_SIZE = 500
 
-now_utc = datetime.now(timezone.utc)
-DATE_FROM = (now_utc - timedelta(days=35)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-DATE_TO = now_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-
-# Nếu muốn fix cứng ngày thì dùng:
-# DATE_FROM = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-# DATE_TO = datetime(2026, 2, 24, 23, 59, 59, tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-
-HEADERS = {
+HEADERS_BASE = {
     "accept": "application/json, text/plain, */*",
     "content-type": "application/json",
     "origin": "https://stock.salework.net",
@@ -36,7 +32,17 @@ HEADERS = {
     "user-agent": "Mozilla/5.0"
 }
 
-TOKEN = None
+
+# ==============================
+# DATE RANGE
+# ==============================
+now_utc = datetime.now(timezone.utc)
+DATE_FROM = (now_utc - timedelta(days=35)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+DATE_TO = now_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+# Nếu muốn test ít ngày hơn thì dùng:
+# DATE_FROM = (now_utc - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+# DATE_TO = now_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
 # ==============================
@@ -62,18 +68,29 @@ table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
 
 
 # ==============================
-# GET TOKEN FROM SALEWORK
+# VALIDATE ENV
 # ==============================
-def get_latest_token():
-    username = os.getenv("SALEWORK_EMAIL")
-    password = os.getenv("SALEWORK_PASSWORD")
+def validate_env():
+    missing = []
 
-    if not username or not password:
-        raise ValueError("Thiếu SALEWORK_EMAIL hoặc SALEWORK_PASSWORD trong environment variables")
+    if not SALEWORK_EMAIL:
+        missing.append("SALEWORK_EMAIL")
+    if not SALEWORK_PASSWORD:
+        missing.append("SALEWORK_PASSWORD")
+    if not SALEWORK_COMPANYCODE:
+        missing.append("SALEWORK_COMPANYCODE")
+    if not gcp_key_raw:
+        missing.append("GOOGLE_SERVICE_ACCOUNT_JSON")
 
-    print("🔐 Logging in SaleWork and getting latest token...")
-    print("SALEWORK_EMAIL loaded:", bool(username))
-    print("SALEWORK_PASSWORD loaded:", bool(password))
+    if missing:
+        raise ValueError(f"Thiếu environment variables: {', '.join(missing)}")
+
+
+# ==============================
+# LOGIN + GET TOKEN + COOKIE
+# ==============================
+def get_salework_auth():
+    token_holder = {"token": None}
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -83,80 +100,108 @@ def get_latest_token():
         context = browser.new_context()
         page = context.new_page()
 
+        def handle_request(request):
+            try:
+                headers = request.all_headers()
+                auth = headers.get("authorization") or headers.get("Authorization")
+                if auth and auth.startswith("Bearer "):
+                    token_holder["token"] = auth
+            except Exception:
+                pass
+
+        page.on("request", handle_request)
+
         try:
-            # 1. Mở login page
+            print("🔐 Logging in SaleWork and getting latest token...")
+            print("SALEWORK_EMAIL loaded:", bool(SALEWORK_EMAIL))
+            print("SALEWORK_PASSWORD loaded:", bool(SALEWORK_PASSWORD))
+            print("SALEWORK_COMPANYCODE loaded:", bool(SALEWORK_COMPANYCODE))
+
             page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
-            time.sleep(2)
+            page.wait_for_timeout(3000)
 
-            # 2. Điền tài khoản / mật khẩu
-            page.fill('input[type="text"]', username)
-            page.fill('input[type="password"]', password)
-            page.click('button[type="submit"]')
+            page.locator('input[type="text"]').first.fill(SALEWORK_EMAIL)
+            page.locator('input[type="password"]').first.fill(SALEWORK_PASSWORD)
+            page.locator('button[type="submit"]').first.click()
 
-            # 3. Chờ login xong rồi vào trang orders
-            page.wait_for_load_state("networkidle", timeout=60000)
-            page.goto(ORDERS_URL, wait_until="networkidle", timeout=60000)
-            time.sleep(5)
+            try:
+                page.wait_for_load_state("networkidle", timeout=30000)
+            except PlaywrightTimeoutError:
+                pass
+
+            page.goto(ORDERS_URL, wait_until="domcontentloaded", timeout=60000)
+
+            try:
+                page.wait_for_load_state("networkidle", timeout=30000)
+            except PlaywrightTimeoutError:
+                pass
+
+            page.wait_for_timeout(5000)
 
             print("🌐 Current URL:", page.url)
 
-            token = None
+            # Fallback 1: localStorage
+            if not token_holder["token"]:
+                try:
+                    local_storage = json.loads(page.evaluate("() => JSON.stringify(window.localStorage)"))
+                    print("🧪 localStorage keys:", list(local_storage.keys()))
+                    raw_token = local_storage.get("evn-token")
 
-            # 4. Lấy từ localStorage
-            local_storage_raw = page.evaluate("() => JSON.stringify(window.localStorage)")
-            local_storage = json.loads(local_storage_raw)
-            print("🧪 localStorage keys:", list(local_storage.keys()))
+                    if raw_token:
+                        token_holder["token"] = f"Bearer {raw_token}"
+                        print("✅ Found token in cookie/localStorage key: evn-token")
+                except Exception:
+                    pass
 
-            for key, value in local_storage.items():
-                if "token" in key.lower() and value:
-                    token = value
-                    print(f"✅ Found token in localStorage: {key}")
-                    break
+            # Fallback 2: sessionStorage
+            if not token_holder["token"]:
+                try:
+                    session_storage = json.loads(page.evaluate("() => JSON.stringify(window.sessionStorage)"))
+                    print("🧪 sessionStorage keys:", list(session_storage.keys()))
+                    for key, value in session_storage.items():
+                        if "token" in key.lower() and value:
+                            token_holder["token"] = value if str(value).startswith("Bearer ") else f"Bearer {value}"
+                            print(f"✅ Found token in sessionStorage: {key}")
+                            break
+                except Exception:
+                    pass
 
-            # 5. Nếu chưa có thì lấy từ sessionStorage
-            if not token:
-                session_storage_raw = page.evaluate("() => JSON.stringify(window.sessionStorage)")
-                session_storage = json.loads(session_storage_raw)
-                print("🧪 sessionStorage keys:", list(session_storage.keys()))
+            if not token_holder["token"]:
+                raise RuntimeError("Không lấy được auth token sau khi đăng nhập.")
 
-                for key, value in session_storage.items():
-                    if "token" in key.lower() and value:
-                        token = value
-                        print(f"✅ Found token in sessionStorage: {key}")
-                        break
+            cookies = context.cookies()
+            cookie_str = "; ".join([f'{c["name"]}={c["value"]}' for c in cookies])
 
-            # 6. Nếu vẫn chưa có thì lấy từ cookies
-            if not token:
-                cookies = context.cookies()
-                for cookie in cookies:
-                    if "token" in cookie["name"].lower() and cookie["value"]:
-                        token = cookie["value"]
-                        print(f"✅ Found token in cookie: {cookie['name']}")
-                        break
-
-            if not token:
-                raise Exception(
-                    "Không lấy được token ở trang /orders. "
-                    "Hãy kiểm tra lại selector login hoặc nơi Salework lưu token."
-                )
-
-            return token
+            print("✅ Got latest token")
+            return token_holder["token"], cookie_str
 
         finally:
             browser.close()
 
 
 # ==============================
+# BUILD REQUEST HEADERS
+# ==============================
+def build_order_headers(auth_token, cookie_str):
+    headers = HEADERS_BASE.copy()
+    headers.update({
+        "Authorization": auth_token,
+        "companycode": SALEWORK_COMPANYCODE,
+        "platform": "web",
+        "Cookie": cookie_str
+    })
+    return headers
+
+
+# ==============================
 # FETCH DATA
 # ==============================
-def fetch_orders():
-    global TOKEN
-
-    if not TOKEN:
-        raise ValueError("TOKEN đang rỗng. Hãy gọi get_latest_token() trước.")
-
+def fetch_orders(auth_token, cookie_str):
     all_orders = []
     start = 0
+    session = requests.Session()
+
+    raw_token = auth_token.replace("Bearer ", "", 1) if auth_token.startswith("Bearer ") else auth_token
 
     while True:
         payload = {
@@ -172,25 +217,34 @@ def fetch_orders():
                 "timeend": DATE_TO,
                 "typeCreated": "createdAt"
             },
-            "token": TOKEN
+            "token": raw_token
         }
+
+        headers = build_order_headers(auth_token, cookie_str)
 
         print(f"📥 Fetch start={start}")
 
-        r = requests.post(BASE_URL, headers=HEADERS, json=payload, timeout=60)
+        response = session.post(BASE_URL, headers=headers, json=payload, timeout=60)
 
-        # Nếu token lỗi/hết hạn thì tự refresh 1 lần
-        if r.status_code in [401, 403]:
-            print("🔄 Token expired or unauthorized. Refreshing token...")
-            TOKEN = get_latest_token()
-            payload["token"] = TOKEN
-            r = requests.post(BASE_URL, headers=HEADERS, json=payload, timeout=60)
+        print("STATUS:", response.status_code)
+        print("RESPONSE:", response.text[:1000])
 
-        r.raise_for_status()
+        # nếu token hết hạn thì login lại 1 lần
+        if response.status_code in [401, 403]:
+            print("🔄 Unauthorized. Re-login to refresh token...")
+            auth_token, cookie_str = get_salework_auth()
+            raw_token = auth_token.replace("Bearer ", "", 1) if auth_token.startswith("Bearer ") else auth_token
+            payload["token"] = raw_token
+            headers = build_order_headers(auth_token, cookie_str)
+            response = session.post(BASE_URL, headers=headers, json=payload, timeout=60)
 
-        data = r.json()
+            print("RETRY STATUS:", response.status_code)
+            print("RETRY RESPONSE:", response.text[:1000])
+
+        response.raise_for_status()
+        data = response.json()
+
         orders = data.get("orders", [])
-
         print(f"✅ start={start} | fetched={len(orders)}")
 
         if not orders:
@@ -240,7 +294,7 @@ def build_dataframe(orders):
 
 
 # ==============================
-# DELETE OLD DATA IN BIGQUERY
+# BIGQUERY
 # ==============================
 def delete_last_35_days():
     print("\n🧹 Deleting last 35 days in BigQuery...")
@@ -254,9 +308,6 @@ def delete_last_35_days():
     print("✅ Delete done")
 
 
-# ==============================
-# LOAD TO BIGQUERY
-# ==============================
 def load_to_bigquery(df):
     print("\n💾 Loading to BigQuery...")
 
@@ -278,16 +329,15 @@ def load_to_bigquery(df):
 # MAIN
 # ==============================
 def main():
-    global TOKEN
-
     print("\n🚀 START SALEWORK SHOPEE → BIGQUERY ETL\n")
     print(f"🗓️ DATE_FROM: {DATE_FROM}")
     print(f"🗓️ DATE_TO  : {DATE_TO}")
 
-    TOKEN = get_latest_token()
-    print("✅ Got latest token")
+    validate_env()
 
-    orders = fetch_orders()
+    auth_token, cookie_str = get_salework_auth()
+
+    orders = fetch_orders(auth_token, cookie_str)
     print(f"\n📦 Total orders: {len(orders)}")
 
     if not orders:
