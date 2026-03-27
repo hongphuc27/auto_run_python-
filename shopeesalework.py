@@ -101,18 +101,60 @@ def get_salework_auth():
             args=["--no-sandbox", "--disable-dev-shm-usage"]
         )
         context = browser.new_context()
+
+        # Hook fetch + XHR để bắt Authorization header do chính app Salework gắn vào
+        context.add_init_script("""
+            (() => {
+                window.__capturedAuthToken = null;
+
+                const origFetch = window.fetch;
+                window.fetch = async (...args) => {
+                    try {
+                        const init = args[1] || {};
+                        const headers = init.headers || {};
+                        let auth = null;
+
+                        if (headers instanceof Headers) {
+                            auth = headers.get('Authorization') || headers.get('authorization');
+                        } else if (Array.isArray(headers)) {
+                            for (const [k, v] of headers) {
+                                if (String(k).toLowerCase() === 'authorization') {
+                                    auth = v;
+                                    break;
+                                }
+                            }
+                        } else {
+                            auth = headers.Authorization || headers.authorization || null;
+                        }
+
+                        if (auth && !window.__capturedAuthToken) {
+                            window.__capturedAuthToken = auth;
+                        }
+                    } catch (e) {}
+                    return origFetch(...args);
+                };
+
+                const origOpen = XMLHttpRequest.prototype.open;
+                const origSetHeader = XMLHttpRequest.prototype.setRequestHeader;
+
+                XMLHttpRequest.prototype.open = function(...args) {
+                    this.__headers = {};
+                    return origOpen.apply(this, args);
+                };
+
+                XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
+                    try {
+                        this.__headers[name] = value;
+                        if (String(name).toLowerCase() === 'authorization' && !window.__capturedAuthToken) {
+                            window.__capturedAuthToken = value;
+                        }
+                    } catch (e) {}
+                    return origSetHeader.apply(this, arguments);
+                };
+            })();
+        """)
+
         page = context.new_page()
-
-        def handle_request(request):
-            try:
-                headers = request.all_headers()
-                auth = headers.get("authorization") or headers.get("Authorization")
-                if auth and "Bearer " in auth:
-                    result["auth_token"] = auth
-            except Exception:
-                pass
-
-        page.on("request", handle_request)
 
         try:
             print("🔐 Logging in Salework and getting latest token...")
@@ -142,45 +184,86 @@ def get_salework_auth():
             page.wait_for_timeout(8000)
             print("🌐 Current URL:", page.url)
 
-            # Ép browser gọi request thật để phát sinh Authorization header
-            page.evaluate(f"""
-                async () => {{
-                    try {{
-                        await fetch("{BASE_URL}", {{
-                            method: "POST",
-                            headers: {{
-                                "accept": "application/json, text/plain, */*",
-                                "content-type": "application/json"
-                            }},
-                            body: JSON.stringify({{
-                                method: "getOrderList",
-                                params: {{
-                                    start: 0,
-                                    pageSize: 1,
-                                    channel: "{CHANNEL}",
-                                    state: "",
-                                    search: "",
-                                    company_id: "{COMPANY_ID}",
-                                    timestart: "{DATE_FROM}",
-                                    timeend: "{DATE_TO}",
-                                    typeCreated: "createdAt"
-                                }}
-                            }})
-                        }});
-                    }} catch (e) {{}}
-                }}
-            """)
-
+            # reload 1 lần để app tự bắn request nội bộ
+            page.reload(wait_until="domcontentloaded", timeout=60000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=30000)
+            except PlaywrightTimeoutError:
+                pass
             page.wait_for_timeout(5000)
 
-            if not result["auth_token"]:
-                raise RuntimeError("Không bắt được Authorization Bearer token sau khi đăng nhập")
+            # 1) ưu tiên token app tự gắn vào request
+            auth_token = page.evaluate("() => window.__capturedAuthToken")
+
+            # 2) fallback: quét localStorage
+            if not auth_token:
+                try:
+                    local_storage = json.loads(page.evaluate("() => JSON.stringify(window.localStorage)"))
+                    print("🧪 localStorage keys:", list(local_storage.keys()))
+                    for key, value in local_storage.items():
+                        if not value:
+                            continue
+
+                        # key chứa token
+                        if "token" in key.lower():
+                            auth_token = value
+                            break
+
+                        # value là JSON chứa token
+                        try:
+                            parsed = json.loads(value) if isinstance(value, str) else value
+                            if isinstance(parsed, dict):
+                                for k2, v2 in parsed.items():
+                                    if "token" in str(k2).lower() and v2:
+                                        auth_token = v2
+                                        break
+                        except Exception:
+                            pass
+
+                        if auth_token:
+                            break
+                except Exception:
+                    pass
+
+            # 3) fallback: quét sessionStorage
+            if not auth_token:
+                try:
+                    session_storage = json.loads(page.evaluate("() => JSON.stringify(window.sessionStorage)"))
+                    print("🧪 sessionStorage keys:", list(session_storage.keys()))
+                    for key, value in session_storage.items():
+                        if not value:
+                            continue
+
+                        if "token" in key.lower():
+                            auth_token = value
+                            break
+
+                        try:
+                            parsed = json.loads(value) if isinstance(value, str) else value
+                            if isinstance(parsed, dict):
+                                for k2, v2 in parsed.items():
+                                    if "token" in str(k2).lower() and v2:
+                                        auth_token = v2
+                                        break
+                        except Exception:
+                            pass
+
+                        if auth_token:
+                            break
+                except Exception:
+                    pass
+
+            if auth_token and not str(auth_token).startswith("Bearer "):
+                auth_token = f"Bearer {auth_token}"
+
+            if not auth_token:
+                raise RuntimeError("Không bắt được Authorization token sau khi đăng nhập")
 
             cookies = context.cookies()
-            result["cookie_str"] = "; ".join([f'{c["name"]}={c["value"]}' for c in cookies])
+            cookie_str = "; ".join([f'{c["name"]}={c["value"]}' for c in cookies])
 
             print("✅ Got latest token")
-            return result["auth_token"], result["cookie_str"]
+            return auth_token, cookie_str
 
         finally:
             browser.close()
@@ -232,15 +315,6 @@ def fetch_orders(auth_token, cookie_str):
 
         print("STATUS:", response.status_code)
         print("RESPONSE:", response.text[:1000])
-
-        if response.status_code in [401, 403]:
-            print("🔄 Unauthorized. Re-login...")
-            auth_token, cookie_str = get_salework_auth()
-            headers = build_order_headers(auth_token, cookie_str)
-            response = session.post(BASE_URL, headers=headers, json=payload, timeout=60)
-
-            print("RETRY STATUS:", response.status_code)
-            print("RETRY RESPONSE:", response.text[:1000])
 
         response.raise_for_status()
         data = response.json()
