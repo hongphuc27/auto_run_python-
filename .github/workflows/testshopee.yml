@@ -1,4 +1,4 @@
-name: Salework Shopee ETL
+name: Salework Shopee TEST
 
 on:
   workflow_dispatch:
