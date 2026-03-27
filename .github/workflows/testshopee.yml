@@ -12,6 +12,7 @@ jobs:
     env:
       SALEWORK_EMAIL: ${{ secrets.SALEWORK_EMAIL }}
       SALEWORK_PASSWORD: ${{ secrets.SALEWORK_PASSWORD }}
+      SALEWORK_COMPANYCODE: ${{ secrets.SALEWORK_COMPANYCODE }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
 
     steps:
@@ -27,7 +28,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          python -m playwright install chromium
+          python -m playwright install --with-deps chromium
 
       - name: Run script
         run: python shopeesalework.py
