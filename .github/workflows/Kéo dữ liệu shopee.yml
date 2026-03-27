@@ -31,6 +31,9 @@ jobs:
       # 7️⃣ Run Salework Shopee ETL
       - name: Run Salework Shopee ETL
         env:
+          SALEWORK_EMAIL: ${{ secrets.SALEWORK_EMAIL }}
+          SALEWORK_PASSWORD: ${{ secrets.SALEWORK_PASSWORD }}
+          SALEWORK_COMPANYCODE: ${{ secrets.SALEWORK_COMPANYCODE }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python shopeesalework.py
 
