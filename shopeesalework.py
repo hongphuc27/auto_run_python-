@@ -29,7 +29,7 @@ HEADERS_BASE = {
     "content-type": "application/json",
     "origin": "https://stock.salework.net",
     "referer": "https://stock.salework.net/",
-    "user-agent": "Mozilla/5.0"
+    "user-agent": "Mozilla/5.0",
 }
 
 
@@ -40,7 +40,7 @@ now_utc = datetime.now(timezone.utc)
 DATE_FROM = (now_utc - timedelta(days=35)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 DATE_TO = now_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
-# test ngắn hơn nếu cần
+# Test ngắn hơn nếu cần:
 # DATE_FROM = (now_utc - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 # DATE_TO = now_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
@@ -87,10 +87,13 @@ def validate_env():
 
 
 # ==============================
-# LOGIN + GET TOKEN + COOKIE
+# LOGIN + GET AUTH TOKEN + COOKIE
 # ==============================
 def get_salework_auth():
-    token_holder = {"token": None}
+    result = {
+        "auth_token": None,
+        "cookie_str": None
+    }
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -104,8 +107,8 @@ def get_salework_auth():
             try:
                 headers = request.all_headers()
                 auth = headers.get("authorization") or headers.get("Authorization")
-                if auth:
-                    token_holder["token"] = auth if auth.startswith("Bearer ") else f"Bearer {auth}"
+                if auth and "Bearer " in auth:
+                    result["auth_token"] = auth
             except Exception:
                 pass
 
@@ -136,66 +139,48 @@ def get_salework_auth():
             except PlaywrightTimeoutError:
                 pass
 
-            page.wait_for_timeout(5000)
+            page.wait_for_timeout(8000)
             print("🌐 Current URL:", page.url)
 
-            # 1) localStorage: quét tất cả key chứa token
-            if not token_holder["token"]:
-                try:
-                    local_storage = json.loads(page.evaluate("() => JSON.stringify(window.localStorage)"))
-                    print("🧪 localStorage keys:", list(local_storage.keys()))
+            # Ép browser gọi request thật để phát sinh Authorization header
+            page.evaluate(f"""
+                async () => {{
+                    try {{
+                        await fetch("{BASE_URL}", {{
+                            method: "POST",
+                            headers: {{
+                                "accept": "application/json, text/plain, */*",
+                                "content-type": "application/json"
+                            }},
+                            body: JSON.stringify({{
+                                method: "getOrderList",
+                                params: {{
+                                    start: 0,
+                                    pageSize: 1,
+                                    channel: "{CHANNEL}",
+                                    state: "",
+                                    search: "",
+                                    company_id: "{COMPANY_ID}",
+                                    timestart: "{DATE_FROM}",
+                                    timeend: "{DATE_TO}",
+                                    typeCreated: "createdAt"
+                                }}
+                            }})
+                        }});
+                    }} catch (e) {{}}
+                }}
+            """)
 
-                    for key, value in local_storage.items():
-                        if "token" in key.lower() and value:
-                            token_holder["token"] = value if str(value).startswith("Bearer ") else f"Bearer {value}"
-                            print(f"✅ Found token in localStorage: {key}")
-                            break
-                except Exception:
-                    pass
+            page.wait_for_timeout(5000)
 
-            # 2) sessionStorage: quét tất cả key chứa token
-            if not token_holder["token"]:
-                try:
-                    session_storage = json.loads(page.evaluate("() => JSON.stringify(window.sessionStorage)"))
-                    print("🧪 sessionStorage keys:", list(session_storage.keys()))
-
-                    for key, value in session_storage.items():
-                        if "token" in key.lower() and value:
-                            token_holder["token"] = value if str(value).startswith("Bearer ") else f"Bearer {value}"
-                            print(f"✅ Found token in sessionStorage: {key}")
-                            break
-                except Exception:
-                    pass
-
-            # 3) cookies: quét tất cả cookie chứa token
-            if not token_holder["token"]:
-                try:
-                    cookies = context.cookies()
-                    for cookie in cookies:
-                        if "token" in cookie["name"].lower() and cookie["value"]:
-                            raw = cookie["value"]
-                            token_holder["token"] = raw if str(raw).startswith("Bearer ") else f"Bearer {raw}"
-                            print(f"✅ Found token in cookie: {cookie['name']}")
-                            break
-                except Exception:
-                    pass
-
-            # 4) ép reload thêm 1 lần để phát sinh request auth nếu cần
-            if not token_holder["token"]:
-                try:
-                    page.reload(wait_until="networkidle", timeout=60000)
-                    page.wait_for_timeout(5000)
-                except Exception:
-                    pass
-
-            if not token_holder["token"]:
-                raise RuntimeError("Không lấy được auth token sau khi đăng nhập")
+            if not result["auth_token"]:
+                raise RuntimeError("Không bắt được Authorization Bearer token sau khi đăng nhập")
 
             cookies = context.cookies()
-            cookie_str = "; ".join([f'{c["name"]}={c["value"]}' for c in cookies])
+            result["cookie_str"] = "; ".join([f'{c["name"]}={c["value"]}' for c in cookies])
 
             print("✅ Got latest token")
-            return token_holder["token"], cookie_str
+            return result["auth_token"], result["cookie_str"]
 
         finally:
             browser.close()
@@ -223,8 +208,6 @@ def fetch_orders(auth_token, cookie_str):
     start = 0
     session = requests.Session()
 
-    raw_token = auth_token.replace("Bearer ", "", 1) if auth_token.startswith("Bearer ") else auth_token
-
     while True:
         payload = {
             "method": "getOrderList",
@@ -238,8 +221,7 @@ def fetch_orders(auth_token, cookie_str):
                 "timestart": DATE_FROM,
                 "timeend": DATE_TO,
                 "typeCreated": "createdAt"
-            },
-            "token": raw_token
+            }
         }
 
         headers = build_order_headers(auth_token, cookie_str)
@@ -254,8 +236,6 @@ def fetch_orders(auth_token, cookie_str):
         if response.status_code in [401, 403]:
             print("🔄 Unauthorized. Re-login...")
             auth_token, cookie_str = get_salework_auth()
-            raw_token = auth_token.replace("Bearer ", "", 1) if auth_token.startswith("Bearer ") else auth_token
-            payload["token"] = raw_token
             headers = build_order_headers(auth_token, cookie_str)
             response = session.post(BASE_URL, headers=headers, json=payload, timeout=60)
 
@@ -264,6 +244,9 @@ def fetch_orders(auth_token, cookie_str):
 
         response.raise_for_status()
         data = response.json()
+
+        if data.get("error"):
+            raise RuntimeError(f"API error: {data.get('error')}")
 
         orders = data.get("orders", [])
         print(f"✅ start={start} | fetched={len(orders)}")
