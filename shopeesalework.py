@@ -166,10 +166,9 @@ def get_real_token_and_cookie():
 # ==============================
 # FETCH ORDERS
 # ==============================
-def fetch_orders(token, cookie_str):
+def fetch_orders():
     all_orders = []
     start = 0
-    session = requests.Session()
 
     while True:
         payload = {
@@ -178,28 +177,35 @@ def fetch_orders(token, cookie_str):
                 "start": start,
                 "pageSize": PAGE_SIZE,
                 "channel": CHANNEL,
-                "state": STATE,
+                "state": "",
                 "search": "",
+                "company_id": COMPANY_ID,
                 "timestart": DATE_FROM,
                 "timeend": DATE_TO,
-                "typeCreated": "createdAt",
-                "company_id": COMPANY_ID
+                "typeCreated": "createdAt"
             },
-            "token": token
+            "token": TOKEN
         }
-
-        headers = HEADERS_BASE.copy()
-        headers["Cookie"] = cookie_str
 
         print(f"📥 Fetch start={start}")
 
-        response = session.post(BASE_URL, headers=headers, json=payload, timeout=60)
+        retry = 0
+        max_retry = 5
 
-        response.raise_for_status()
-        data = response.json()
+        while True:
+            try:
+                r = requests.post(BASE_URL, headers=HEADERS, json=payload, timeout=60)
+                r.raise_for_status()
+                data = r.json()
+                break
+            except Exception as e:
+                retry += 1
+                print(f"⚠️ Error at start={start}, retry {retry}/{max_retry}: {e}")
 
-        if data.get("error"):
-            raise RuntimeError(f"API error: {data.get('error')}")
+                if retry >= max_retry:
+                    raise
+
+                time.sleep(3 * retry)
 
         orders = data.get("orders", [])
 
@@ -207,10 +213,6 @@ def fetch_orders(token, cookie_str):
             break
 
         all_orders.extend(orders)
-
-        if len(orders) < PAGE_SIZE:
-            break
-
         start += PAGE_SIZE
         time.sleep(0.1)
 
