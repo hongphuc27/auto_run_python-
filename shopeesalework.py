@@ -7,6 +7,20 @@ from datetime import datetime, timedelta, timezone
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from google.oauth2 import service_account
 from google.cloud import bigquery
+import urllib.parse
+import base64
+
+
+def decode_evn_token(evn_token):
+    try:
+        decoded_url = urllib.parse.unquote(evn_token)
+        decoded_bytes = base64.b64decode(decoded_url)
+        decoded_str = decoded_bytes.decode("utf-8")
+        return decoded_str
+    except Exception as e:
+        print("❌ Decode token failed:", str(e))
+        return None
+
 
 
 # ==============================
@@ -130,8 +144,10 @@ def get_salework_token_and_cookie():
             # Ưu tiên token trong cookie evn-token
             for c in cookies:
                 if c["name"] == "evn-token" and c["value"]:
-                    token = c["value"]
+                    raw_token = c["value"]
+                    token = decode_evn_token(raw_token)
                     print("✅ Found token in cookie: evn-token")
+                    print("✅ Decoded token preview:", token[:50] if token else None)
                     break
 
             # Fallback localStorage
