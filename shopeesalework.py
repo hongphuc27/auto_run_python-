@@ -22,14 +22,17 @@ SALEWORK_COMPANYCODE = os.getenv("SALEWORK_COMPANYCODE", "").strip()
 
 COMPANY_ID = "sw30871"
 CHANNEL = "Shopee"
+STATE = ""
 PAGE_SIZE = 500
 
 HEADERS_BASE = {
-    "accept": "application/json, text/plain, */*",
-    "content-type": "application/json",
-    "origin": "https://stock.salework.net",
-    "referer": "https://stock.salework.net/",
-    "user-agent": "Mozilla/5.0",
+    "Accept": "*/*",
+    "Accept-Language": "vi,en-US;q=0.9,en;q=0.8",
+    "Content-Type": "application/json",
+    "Origin": "https://stock.salework.net",
+    "User-Agent": "Mozilla/5.0",
+    "frontend_version": "1",
+    "platform": "stock_webapp",
 }
 
 
@@ -38,11 +41,11 @@ HEADERS_BASE = {
 # ==============================
 now_utc = datetime.now(timezone.utc)
 DATE_FROM = (now_utc - timedelta(days=35)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-DATE_TO = now_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+DATE_TO = now_utc.strftime("%Y-%m-%dT%H:%M:%S.999Z")
 
 # test ngắn hơn nếu cần
 # DATE_FROM = (now_utc - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-# DATE_TO = now_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+# DATE_TO = now_utc.strftime("%Y-%m-%dT%H:%M:%S.999Z")
 
 
 # ==============================
@@ -87,53 +90,93 @@ def validate_env():
 
 
 # ==============================
-# LOGIN
+# LOGIN -> TOKEN + COOKIE
 # ==============================
-def login_and_get_page():
-    p = sync_playwright().start()
-    browser = p.chromium.launch(
-        headless=True,
-        args=["--no-sandbox", "--disable-dev-shm-usage"]
-    )
-    context = browser.new_context()
-    page = context.new_page()
+def get_salework_token_and_cookie():
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage"]
+        )
+        context = browser.new_context()
+        page = context.new_page()
 
-    print("🔐 Logging in Salework...")
-    print("SALEWORK_EMAIL loaded:", bool(SALEWORK_EMAIL))
-    print("SALEWORK_PASSWORD loaded:", bool(SALEWORK_PASSWORD))
-    print("SALEWORK_COMPANYCODE loaded:", bool(SALEWORK_COMPANYCODE))
+        try:
+            print("🔐 Logging in Salework...")
+            print("SALEWORK_EMAIL loaded:", bool(SALEWORK_EMAIL))
+            print("SALEWORK_PASSWORD loaded:", bool(SALEWORK_PASSWORD))
+            print("SALEWORK_COMPANYCODE loaded:", bool(SALEWORK_COMPANYCODE))
 
-    page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
-    page.wait_for_timeout(3000)
+            page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(3000)
 
-    page.locator('input[type="text"]').first.fill(SALEWORK_EMAIL)
-    page.locator('input[type="password"]').first.fill(SALEWORK_PASSWORD)
-    page.locator('button[type="submit"]').first.click()
+            page.locator('input[type="text"]').first.fill(SALEWORK_EMAIL)
+            page.locator('input[type="password"]').first.fill(SALEWORK_PASSWORD)
+            page.locator('button[type="submit"]').first.click()
 
-    try:
-        page.wait_for_load_state("networkidle", timeout=30000)
-    except PlaywrightTimeoutError:
-        pass
+            try:
+                page.wait_for_load_state("networkidle", timeout=30000)
+            except PlaywrightTimeoutError:
+                pass
 
-    page.goto(ORDERS_URL, wait_until="domcontentloaded", timeout=60000)
+            page.goto(ORDERS_URL, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(5000)
 
-    try:
-        page.wait_for_load_state("networkidle", timeout=30000)
-    except PlaywrightTimeoutError:
-        pass
+            print("🌐 Current URL:", page.url)
 
-    page.wait_for_timeout(5000)
-    print("🌐 Current URL:", page.url)
+            cookies = context.cookies()
+            token = None
 
-    return p, browser, context, page
+            # Ưu tiên token trong cookie evn-token
+            for c in cookies:
+                if c["name"] == "evn-token" and c["value"]:
+                    token = c["value"]
+                    print("✅ Found token in cookie: evn-token")
+                    break
+
+            # Fallback localStorage
+            if not token:
+                try:
+                    local_storage = json.loads(page.evaluate("() => JSON.stringify(window.localStorage)"))
+                    print("🧪 localStorage keys:", list(local_storage.keys()))
+                    for key, value in local_storage.items():
+                        if "token" in key.lower() and value:
+                            token = value
+                            print(f"✅ Found token in localStorage: {key}")
+                            break
+                except Exception:
+                    pass
+
+            # Fallback sessionStorage
+            if not token:
+                try:
+                    session_storage = json.loads(page.evaluate("() => JSON.stringify(window.sessionStorage)"))
+                    print("🧪 sessionStorage keys:", list(session_storage.keys()))
+                    for key, value in session_storage.items():
+                        if "token" in key.lower() and value:
+                            token = value
+                            print(f"✅ Found token in sessionStorage: {key}")
+                            break
+                except Exception:
+                    pass
+
+            if not token:
+                raise RuntimeError("Không lấy được token sau khi đăng nhập")
+
+            cookie_str = "; ".join([f'{c['name']}={c['value']}' for c in cookies])
+            return token, cookie_str
+
+        finally:
+            browser.close()
 
 
 # ==============================
-# FETCH DATA IN BROWSER SESSION
+# FETCH ORDERS
 # ==============================
-def fetch_orders_via_browser(page):
+def fetch_orders(token, cookie_str):
     all_orders = []
     start = 0
+    session = requests.Session()
 
     while True:
         payload = {
@@ -142,70 +185,29 @@ def fetch_orders_via_browser(page):
                 "start": start,
                 "pageSize": PAGE_SIZE,
                 "channel": CHANNEL,
-                "state": "",
+                "state": STATE,
                 "search": "",
-                "company_id": COMPANY_ID,
                 "timestart": DATE_FROM,
                 "timeend": DATE_TO,
-                "typeCreated": "createdAt"
-            }
+                "typeCreated": "createdAt",
+                "company_id": COMPANY_ID
+            },
+            "token": token
         }
 
+        headers = HEADERS_BASE.copy()
+        headers["Cookie"] = cookie_str
+
         print(f"📥 Fetch start={start}")
+        print("PAYLOAD:", json.dumps(payload, ensure_ascii=False))
 
-        result = page.evaluate(
-            """
-            async ({ url, payload, companycode }) => {
-                try {
-                    const res = await fetch(url, {
-                        method: "POST",
-                        credentials: "include",
-                        headers: {
-                            "accept": "application/json, text/plain, */*",
-                            "content-type": "application/json",
-                            "companycode": companycode,
-                            "platform": "web"
-                        },
-                        body: JSON.stringify(payload)
-                    });
+        response = session.post(BASE_URL, headers=headers, json=payload, timeout=60)
 
-                    const text = await res.text();
-                    let jsonData = null;
+        print("STATUS:", response.status_code)
+        print("RESPONSE:", response.text[:1000])
 
-                    try {
-                        jsonData = JSON.parse(text);
-                    } catch (e) {}
-
-                    return {
-                        ok: res.ok,
-                        status: res.status,
-                        text: text,
-                        data: jsonData
-                    };
-                } catch (e) {
-                    return {
-                        ok: false,
-                        status: 0,
-                        text: String(e),
-                        data: null
-                    };
-                }
-            }
-            """,
-            {
-                "url": BASE_URL,
-                "payload": payload,
-                "companycode": SALEWORK_COMPANYCODE
-            }
-        )
-
-        print("STATUS:", result["status"])
-        print("RESPONSE:", result["text"][:1000])
-
-        if not result["ok"]:
-            raise RuntimeError(f"Browser fetch failed: {result['text']}")
-
-        data = result.get("data") or {}
+        response.raise_for_status()
+        data = response.json()
 
         if data.get("error"):
             raise RuntimeError(f"API error: {data.get('error')}")
@@ -301,40 +303,27 @@ def main():
 
     validate_env()
 
-    p = browser = context = page = None
+    token, cookie_str = get_salework_token_and_cookie()
+    orders = fetch_orders(token, cookie_str)
 
-    try:
-        p, browser, context, page = login_and_get_page()
-        orders = fetch_orders_via_browser(page)
+    print(f"\n📦 Total orders: {len(orders)}")
 
-        print(f"\n📦 Total orders: {len(orders)}")
+    if not orders:
+        print("⚠️ No data")
+        return
 
-        if not orders:
-            print("⚠️ No data")
-            return
+    df = build_dataframe(orders)
 
-        df = build_dataframe(orders)
+    if df.empty:
+        print("⚠️ DataFrame rỗng")
+        return
 
-        if df.empty:
-            print("⚠️ DataFrame rỗng")
-            return
+    print("\n📊 Columns:", list(df.columns))
+    print("🧾 Rows:", len(df))
+    print(df.head(3))
 
-        print("\n📊 Columns:", list(df.columns))
-        print("🧾 Rows:", len(df))
-        print(df.head(3))
-
-        delete_last_35_days()
-        load_to_bigquery(df)
-
-    finally:
-        if page:
-            page.close()
-        if context:
-            context.close()
-        if browser:
-            browser.close()
-        if p:
-            p.stop()
+    delete_last_35_days()
+    load_to_bigquery(df)
 
 
 if __name__ == "__main__":
