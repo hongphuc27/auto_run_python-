@@ -22,7 +22,7 @@ SALEWORK_PASSWORD = os.getenv("SALEWORK_PASSWORD", "").strip()
 COMPANY_ID = "sw30871"
 CHANNEL = "Shopee"
 STATE = ""
-PAGE_SIZE = 100
+PAGE_SIZE = 500
 
 HEADERS_BASE = {
     "Accept": "*/*",
