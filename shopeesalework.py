@@ -170,7 +170,7 @@ def fetch_orders(token, cookie_str):
     all_orders = []
     start = 0
 
-    headers = HEADERS.copy()
+    headers = HEADERS_BASE.copy()
     headers["Cookie"] = cookie_str
 
     while True:
@@ -180,7 +180,7 @@ def fetch_orders(token, cookie_str):
                 "start": start,
                 "pageSize": PAGE_SIZE,
                 "channel": CHANNEL,
-                "state": "",
+                "state": STATE,
                 "search": "",
                 "company_id": COMPANY_ID,
                 "timestart": DATE_FROM,
