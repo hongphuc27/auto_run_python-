@@ -189,23 +189,8 @@ def fetch_orders():
 
         print(f"📥 Fetch start={start}")
 
-        retry = 0
-        max_retry = 5
-
-        while True:
-            try:
-                r = requests.post(BASE_URL, headers=HEADERS, json=payload, timeout=60)
-                r.raise_for_status()
-                data = r.json()
-                break
-            except Exception as e:
-                retry += 1
-                print(f"⚠️ Error at start={start}, retry {retry}/{max_retry}: {e}")
-
-                if retry >= max_retry:
-                    raise
-
-                time.sleep(3 * retry)
+        r = requests.post(BASE_URL, headers=HEADERS, json=payload, timeout=30)
+        data = r.json()
 
         orders = data.get("orders", [])
 
@@ -214,10 +199,9 @@ def fetch_orders():
 
         all_orders.extend(orders)
         start += PAGE_SIZE
-        time.sleep(0.1)
+        time.sleep(0.05)
 
     return all_orders
-
 
 # ==============================
 # TRANSFORM
