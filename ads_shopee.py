@@ -267,11 +267,11 @@ def fetch_one_page(
 
     headers = build_request_headers(auth_token=auth_token, cookie_str=cookie_str)
 
-    print("📤 PAYLOAD:", payload)
+    # print("📤 PAYLOAD:", payload)
     resp = http_session.post(API_URL, headers=headers, json=payload, timeout=60)
 
-    print("📥 STATUS:", resp.status_code)
-    print("📥 RESPONSE TEXT:", resp.text[:500])
+    # print("📥 STATUS:", resp.status_code)
+    # print("📥 RESPONSE TEXT:", resp.text[:500])
 
     try:
         return resp.json()
@@ -289,12 +289,12 @@ def fetch_all_data(date_from: str, date_to: str) -> List[Dict[str, Any]]:
     start_page = 0
     page_size = 500
 
-    print("🔐 Đang đăng nhập Salework để lấy token mới...")
+    # print("🔐 Đang đăng nhập Salework để lấy token mới...")
     auth_token, cookie_str = get_salework_token_and_cookie()
-    print("✅ Đã lấy token và cookie mới")
+    # print("✅ Đã lấy token và cookie mới")
 
     while True:
-        print(f"📥 Fetch page {start_page}")
+        # print(f"📥 Fetch page {start_page}")
 
         data = fetch_one_page(
             http_session=http_session,
