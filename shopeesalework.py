@@ -307,3 +307,6 @@ def main():
 
     delete_last_22_days()
     load_to_bigquery(df)
+
+if __name__ == "__main__":
+    main()
