@@ -44,7 +44,7 @@ DATE_TO = datetime.combine(today_vn, datetime.max.time().replace(microsecond=999
 
 PROJECT_ID = "rhysman-data-warehouse-488306"
 DATASET_ID = "rhysman"
-TABLE_ID = "fact_orders_salework_tiktok"
+TABLE_ID = "fact_ads_shopee"
 
 gcp_key_raw = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
 if not gcp_key_raw:
@@ -205,7 +205,7 @@ def build_dataframe(orders):
 
     for order in orders:
         item_price = (
-            order.get("tiktok", {})
+            order.get("Shopee", {})
             .get("escrowDetails", {})
             .get("cost_of_goods_sold")
         )
@@ -213,7 +213,7 @@ def build_dataframe(orders):
         rows.append({
             "_id": order.get("_id"),
             "code": order.get("code"),
-            "shopId": str(order.get("shopId") or order.get("tiktokShopId") or ""),
+            "shopId": str(order.get("shopeeShopId") or order.get("shopId") or ""),
             "city": order.get("customer", {}).get("city"),
             "customer_state": order.get("customer", {}).get("state"),
             "order_state": order.get("state"),
@@ -256,7 +256,7 @@ def load_to_bigquery(df):
 # MAIN
 # ==============================
 def main():
-    print("\n🚀 START SALEWORK TIKTOK → BIGQUERY ETL\n")
+    print("\n🚀 START SALEWORK SHOPEE → BIGQUERY ETL\n")
     print(f"DATE_FROM: {DATE_FROM}")
     print(f"DATE_TO  : {DATE_TO}")
 
