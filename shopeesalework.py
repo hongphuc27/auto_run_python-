@@ -293,7 +293,7 @@ def main():
     validate_env()
 
     token, cookie_str = get_real_token_and_cookie()
-    print("🔑 TOKEN:", token[:50])
+    # print("🔑 TOKEN:", token[:50])
 
     orders = fetch_orders(token, cookie_str)
 
