@@ -104,8 +104,8 @@ def get_salework_auth():
             try:
                 headers = request.all_headers()
                 auth = headers.get("authorization") or headers.get("Authorization")
-                if auth and auth.startswith("Bearer "):
-                    token_holder["token"] = auth
+                if auth:
+                    token_holder["token"] = auth if auth.startswith("Bearer ") else f"Bearer {auth}"
             except Exception:
                 pass
 
@@ -139,26 +139,52 @@ def get_salework_auth():
             page.wait_for_timeout(5000)
             print("🌐 Current URL:", page.url)
 
+            # 1) localStorage: quét tất cả key chứa token
             if not token_holder["token"]:
                 try:
                     local_storage = json.loads(page.evaluate("() => JSON.stringify(window.localStorage)"))
                     print("🧪 localStorage keys:", list(local_storage.keys()))
-                    raw_token = local_storage.get("evn-token")
-                    if raw_token:
-                        token_holder["token"] = f"Bearer {raw_token}"
-                        print("✅ Found token in localStorage: evn-token")
+
+                    for key, value in local_storage.items():
+                        if "token" in key.lower() and value:
+                            token_holder["token"] = value if str(value).startswith("Bearer ") else f"Bearer {value}"
+                            print(f"✅ Found token in localStorage: {key}")
+                            break
                 except Exception:
                     pass
 
+            # 2) sessionStorage: quét tất cả key chứa token
             if not token_holder["token"]:
                 try:
                     session_storage = json.loads(page.evaluate("() => JSON.stringify(window.sessionStorage)"))
                     print("🧪 sessionStorage keys:", list(session_storage.keys()))
+
                     for key, value in session_storage.items():
                         if "token" in key.lower() and value:
                             token_holder["token"] = value if str(value).startswith("Bearer ") else f"Bearer {value}"
                             print(f"✅ Found token in sessionStorage: {key}")
                             break
+                except Exception:
+                    pass
+
+            # 3) cookies: quét tất cả cookie chứa token
+            if not token_holder["token"]:
+                try:
+                    cookies = context.cookies()
+                    for cookie in cookies:
+                        if "token" in cookie["name"].lower() and cookie["value"]:
+                            raw = cookie["value"]
+                            token_holder["token"] = raw if str(raw).startswith("Bearer ") else f"Bearer {raw}"
+                            print(f"✅ Found token in cookie: {cookie['name']}")
+                            break
+                except Exception:
+                    pass
+
+            # 4) ép reload thêm 1 lần để phát sinh request auth nếu cần
+            if not token_holder["token"]:
+                try:
+                    page.reload(wait_until="networkidle", timeout=60000)
+                    page.wait_for_timeout(5000)
                 except Exception:
                     pass
 
