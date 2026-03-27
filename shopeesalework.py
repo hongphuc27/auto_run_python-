@@ -21,8 +21,8 @@ SALEWORK_PASSWORD = os.getenv("SALEWORK_PASSWORD", "").strip()
 
 COMPANY_ID = "sw30871"
 CHANNEL = "Shopee"
-STATE = "MỚI"
-PAGE_SIZE = 25
+STATE = ""
+PAGE_SIZE = 100
 
 HEADERS_BASE = {
     "Accept": "*/*",
@@ -34,17 +34,9 @@ HEADERS_BASE = {
     "platform": "stock_webapp",
 }
 
-# đúng theo pattern request thật: từ 00:00 VN -> 23:59:59.999 VN
-VN_TZ = timezone(timedelta(hours=7))
-today_vn = datetime.now(VN_TZ).date()
-start_day = today_vn - timedelta(days=6)
-
-DATE_FROM = datetime.combine(start_day, datetime.min.time(), tzinfo=VN_TZ).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-DATE_TO = datetime.combine(today_vn, datetime.max.time().replace(microsecond=999000), tzinfo=VN_TZ).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.999Z")
-
 PROJECT_ID = "rhysman-data-warehouse-488306"
 DATASET_ID = "rhysman"
-TABLE_ID = "fact_ads_shopee"
+TABLE_ID = "fact_orders_salework_shopee"
 
 gcp_key_raw = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
 if not gcp_key_raw:
@@ -54,6 +46,34 @@ gcp_key = json.loads(gcp_key_raw)
 credentials = service_account.Credentials.from_service_account_info(gcp_key)
 client = bigquery.Client(credentials=credentials, project=PROJECT_ID)
 table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
+
+
+# ==============================
+# DATE RANGE
+# Theo đúng pattern request thật:
+# lấy từ 00:00:00 giờ VN của 6 ngày trước
+# đến 23:59:59.999 giờ VN của hôm nay
+# ==============================
+VN_TZ = timezone(timedelta(hours=7))
+
+
+def build_date_range():
+    today_vn = datetime.now(VN_TZ).date()
+    start_day_vn = today_vn - timedelta(days=5)
+
+    start_dt_vn = datetime.combine(start_day_vn, datetime.min.time(), tzinfo=VN_TZ)
+    end_dt_vn = datetime.combine(
+        today_vn,
+        datetime.max.time().replace(microsecond=999000),
+        tzinfo=VN_TZ
+    )
+
+    date_from = start_dt_vn.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    date_to = end_dt_vn.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.999Z")
+    return date_from, date_to
+
+
+DATE_FROM, DATE_TO = build_date_range()
 
 
 # ==============================
@@ -72,7 +92,8 @@ def validate_env():
 
 
 # ==============================
-# LOGIN + CAPTURE REAL JWT TOKEN
+# LOGIN + CAPTURE REAL REQUEST TOKEN
+# Bắt JWT thật từ payload request của app
 # ==============================
 def get_real_token_and_cookie():
     captured = {
@@ -95,9 +116,9 @@ def get_real_token_and_cookie():
                         return
 
                     body = json.loads(post_data)
+                    params = body.get("params", {})
                     real_token = body.get("token")
 
-                    params = body.get("params", {})
                     if (
                         body.get("method") == "getOrderList"
                         and real_token
@@ -111,6 +132,9 @@ def get_real_token_and_cookie():
         page.on("request", handle_request)
 
         print("🔐 Logging in Salework...")
+        print("SALEWORK_EMAIL loaded:", bool(SALEWORK_EMAIL))
+        print("SALEWORK_PASSWORD loaded:", bool(SALEWORK_PASSWORD))
+
         page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(3000)
 
@@ -128,7 +152,6 @@ def get_real_token_and_cookie():
 
         print("🌐 Current URL:", page.url)
 
-        # nếu trang chưa tự bắn request thì reload thêm 1 lần
         if not captured["token"]:
             page.reload(wait_until="domcontentloaded", timeout=60000)
             page.wait_for_timeout(8000)
@@ -191,8 +214,12 @@ def fetch_orders(token, cookie_str):
             break
 
         all_orders.extend(orders)
+
+        if len(orders) < PAGE_SIZE:
+            break
+
         start += PAGE_SIZE
-        time.sleep(0.05)
+        time.sleep(0.1)
 
     return all_orders
 
@@ -205,7 +232,7 @@ def build_dataframe(orders):
 
     for order in orders:
         item_price = (
-            order.get("Shopee", {})
+            order.get("shopee", {})
             .get("escrowDetails", {})
             .get("cost_of_goods_sold")
         )
@@ -236,15 +263,6 @@ def build_dataframe(orders):
 # ==============================
 # BIGQUERY
 # ==============================
-def delete_last_35_days():
-    delete_query = f"""
-        DELETE FROM `{table_ref}`
-        WHERE createdAt >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 35 DAY)
-    """
-    client.query(delete_query).result()
-    print("✅ Delete done")
-
-
 def load_to_bigquery(df):
     job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
     job = client.load_table_from_dataframe(df, table_ref, job_config=job_config)
@@ -273,11 +291,14 @@ def main():
         return
 
     df = build_dataframe(orders)
+
     if df.empty:
         print("⚠️ DataFrame rỗng")
         return
 
-    delete_last_35_days()
+    print("📊 Rows:", len(df))
+    print(df.head(3))
+
     load_to_bigquery(df)
 
 
