@@ -312,9 +312,6 @@ def main():
         print("⚠️ DataFrame rỗng")
         return
 
-    print("\n📊 Columns:", list(df.columns))
-    print("🧾 Rows:", len(df))
-
     delete_last_22_days()
     load_to_bigquery(df)
 
