@@ -20,23 +20,37 @@ SALEWORK_EMAIL = os.getenv("SALEWORK_EMAIL", "").strip()
 SALEWORK_PASSWORD = os.getenv("SALEWORK_PASSWORD", "").strip()
 
 COMPANY_ID = "sw30871"
-CHANNEL = "Shopee"
+CHANNEL = "Tiktok"
 STATE = ""
-PAGE_SIZE = 500
+PAGE_SIZE = 550
 
 HEADERS_BASE = {
-    "Accept": "*/*",
-    "Accept-Language": "vi,en-US;q=0.9,en;q=0.8",
-    "Content-Type": "application/json",
-    "Origin": "https://stock.salework.net",
-    "User-Agent": "Mozilla/5.0",
-    "frontend_version": "1",
-    "platform": "stock_webapp",
+    "accept": "application/json, text/plain, */*",
+    "content-type": "application/json",
+    "origin": "https://stock.salework.net",
+    "referer": "https://stock.salework.net/",
+    "user-agent": "Mozilla/5.0"
 }
+
+KEEP_COLUMNS = [
+    "_id", "code", "tiktokShopId", "totalPrice", "state", "createdAt",
+    "channel", "reconciled", "estimateRevenue", "customer_state",
+
+    "tiktok_payment_info_original_shipping_fee",
+    "tiktok_payment_info_original_total_product_price",
+    "tiktok_payment_info_platform_discount",
+    "tiktok_payment_info_seller_discount",
+    "tiktok_payment_info_shipping_fee",
+    "tiktok_payment_info_shipping_fee_platform_discount",
+    "tiktok_payment_info_shipping_fee_seller_discount",
+    "tiktok_payment_info_sub_total",
+    "tiktok_payment_info_taxes",
+    "tiktok_payment_info_total_amount"
+]
 
 PROJECT_ID = "rhysman-data-warehouse-488306"
 DATASET_ID = "rhysman"
-TABLE_ID = "fact_orders_salework_shopee"
+TABLE_ID = "fact_orders_salework_tiktok"
 
 gcp_key_raw = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
 if not gcp_key_raw:
@@ -50,9 +64,7 @@ table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
 
 # ==============================
 # DATE RANGE
-# Theo đúng pattern request thật:
-# lấy từ 00:00:00 giờ VN của 6 ngày trước
-# đến 23:59:59.999 giờ VN của hôm nay
+# giữ logic ngày của code 1
 # ==============================
 VN_TZ = timezone(timedelta(hours=7))
 
@@ -71,8 +83,10 @@ def build_date_range():
     date_from = start_dt_vn.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     date_to = end_dt_vn.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.999Z")
     return date_from, date_to
-    
+
+
 DATE_FROM, DATE_TO = build_date_range()
+
 
 # ==============================
 # VALIDATE
@@ -91,7 +105,7 @@ def validate_env():
 
 # ==============================
 # LOGIN + CAPTURE REAL REQUEST TOKEN
-# Bắt JWT thật từ payload request của app
+# GIỮ NGUYÊN LOGIC CODE THỨ 1
 # ==============================
 def get_real_token_and_cookie():
     captured = {
@@ -123,12 +137,10 @@ def get_real_token_and_cookie():
                         and params.get("channel") == CHANNEL
                     ):
                         captured["token"] = real_token
-                        # print("✅ Captured REAL JWT token")
                 except Exception:
                     pass
 
         page.on("request", handle_request)
-
 
         page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(3000)
@@ -145,8 +157,6 @@ def get_real_token_and_cookie():
         page.goto(ORDERS_URL, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(8000)
 
-        # print("🌐 Current URL:", page.url)
-
         if not captured["token"]:
             page.reload(wait_until="domcontentloaded", timeout=60000)
             page.wait_for_timeout(8000)
@@ -157,11 +167,13 @@ def get_real_token_and_cookie():
         cookies = context.cookies()
         cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
 
+        browser.close()
         return captured["token"], cookie_str
 
 
 # ==============================
 # FETCH ORDERS
+# logic request theo code 2, nhưng dùng token/cookie từ code 1
 # ==============================
 def fetch_orders(token, cookie_str):
     all_orders = []
@@ -216,49 +228,35 @@ def fetch_orders(token, cookie_str):
             break
 
         start += PAGE_SIZE
-        time.sleep(0.1)  # giảm load server
+        time.sleep(0.05)
 
     return all_orders
 
+
 # ==============================
 # TRANSFORM
+# lấy logic normalize + KEEP_COLUMNS của code 2
 # ==============================
 def build_dataframe(orders):
-    rows = []
+    if not orders:
+        return pd.DataFrame()
 
-    for order in orders:
-        item_price = (
-            order.get("shopee", {})
-            .get("escrowDetails", {})
-            .get("cost_of_goods_sold")
-        )
+    df = pd.json_normalize(orders, sep="_")
 
-        rows.append({
-            "_id": order.get("_id"),
-            "code": order.get("code"),
-            "shopeeShopId": str(order.get("shopeeShopId")),
-            "city": order.get("customer", {}).get("city"),
-            "customer_state": order.get("customer", {}).get("state"),
-            "order_state": order.get("state"),
-            "createdAt": order.get("createdAt"),
-            "price": item_price
-        })
+    available_columns = [c for c in KEEP_COLUMNS if c in df.columns]
+    df = df[available_columns].copy()
 
-    df = pd.DataFrame(rows)
-
-    if df.empty:
-        return df
-
-    df["createdAt"] = pd.to_datetime(df["createdAt"], errors="coerce", utc=True)
-    df["createdAt"] = df["createdAt"].dt.tz_convert("Asia/Ho_Chi_Minh")
-    df["price"] = pd.to_numeric(df["price"], errors="coerce")
+    if "createdAt" in df.columns:
+        df["createdAt"] = pd.to_datetime(df["createdAt"], errors="coerce", utc=True)
+        df["createdAt"] = df["createdAt"].dt.tz_convert("Asia/Ho_Chi_Minh")
 
     return df
 
+
 # ========================================
 # Xóa dữ liệu
+# giữ logic xóa theo code 1
 # ========================================
-
 def delete_last_22_days():
     start_day_vn = datetime.now(VN_TZ).date() - timedelta(days=22)
     start_dt_vn = datetime.combine(start_day_vn, datetime.min.time(), tzinfo=VN_TZ)
@@ -274,10 +272,21 @@ def delete_last_22_days():
 
 # ==============================
 # BIGQUERY
+# load theo kiểu code 2
 # ==============================
 def load_to_bigquery(df):
-    job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
-    job = client.load_table_from_dataframe(df, table_ref, job_config=job_config)
+    job_config = bigquery.LoadJobConfig(
+        write_disposition="WRITE_APPEND",
+        schema=[
+            bigquery.SchemaField("createdAt", "TIMESTAMP"),
+        ],
+    )
+
+    job = client.load_table_from_dataframe(
+        df,
+        table_ref,
+        job_config=job_config
+    )
     job.result()
     print("✅ DONE LOAD TO BIGQUERY")
 
@@ -286,18 +295,16 @@ def load_to_bigquery(df):
 # MAIN
 # ==============================
 def main():
-    print("\n🚀 START SALEWORK SHOPEE → BIGQUERY ETL\n")
+    print("\n🚀 START SALEWORK TIKTOK → BIGQUERY ETL\n")
     print(f"DATE_FROM: {DATE_FROM}")
     print(f"DATE_TO  : {DATE_TO}")
 
     validate_env()
 
     token, cookie_str = get_real_token_and_cookie()
-    # print("🔑 TOKEN:", token[:50])
-
     orders = fetch_orders(token, cookie_str)
 
-    print(f"📦 Total orders: {len(orders)}")
+    print(f"\n📦 Total orders: {len(orders)}")
 
     if not orders:
         print("⚠️ No data")
@@ -309,8 +316,12 @@ def main():
         print("⚠️ DataFrame rỗng")
         return
 
+    print("\n📊 Columns:", list(df.columns))
+    print("🧾 Rows:", len(df))
+
     delete_last_22_days()
     load_to_bigquery(df)
+
 
 if __name__ == "__main__":
     main()
