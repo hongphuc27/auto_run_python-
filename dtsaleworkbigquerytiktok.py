@@ -139,8 +139,8 @@ def main():
     df["createdAt"] = pd.to_datetime(df["createdAt"], errors="coerce", utc=True)
     df["createdAt"] = df["createdAt"].dt.tz_convert("Asia/Ho_Chi_Minh")
 
-    print("\n📊 Columns:", list(df.columns))
-    print("🧾 Rows:", len(df))
+    # print("\n📊 Columns:", list(df.columns))
+    # print("🧾 Rows:", len(df))
 
     # 🔥 XÓA DỮ LIỆU 20 NGÀY GẦN NHẤT
     print("\n🧹 Deleting last 20 days data in SQL...")
