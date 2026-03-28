@@ -1,5 +1,4 @@
-name: Kéo dữ liệu Shopee
-
+name: tiktoktest
 on:
   schedule:
     - cron: "0 */2 * * *"
