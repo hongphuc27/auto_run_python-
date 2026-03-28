@@ -131,11 +131,7 @@ def get_real_token_and_cookie():
                     params = body.get("params", {})
                     real_token = body.get("token")
 
-                    if (
-                        body.get("method") == "getOrderList"
-                        and real_token
-                        and params.get("channel") == CHANNEL
-                    ):
+                    if body.get("method") == "getOrderList" and real_token:
                         captured["token"] = real_token
                 except Exception:
                     pass
