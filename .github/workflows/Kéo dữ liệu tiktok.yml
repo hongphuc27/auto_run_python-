@@ -2,7 +2,7 @@ name: Kéo dữ liệu tiktok
 
 on:
   schedule:
-    - cron: "*/59 * * * *"   # chạy mỗi 10 phút
+    - cron: "*/59 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -10,24 +10,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
-      # 1️⃣ Clone repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Setup Python
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # 3️⃣ Install dependencies
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas requests google-cloud-bigquery google-auth pyarrow
+          pip install pandas requests google-cloud-bigquery google-auth pyarrow playwright
+          playwright install --with-deps chromium
 
-      # 4️⃣ Run Salework TikTok ETL
       - name: Run Salework TikTok ETL
         env:
           SALEWORK_EMAIL: ${{ secrets.SALEWORK_EMAIL }}
@@ -36,10 +32,7 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python dtsaleworkbigquerytiktok.py
         
-      # 4️⃣ Run Cost TikTok
       - name: Run Cost TikTok
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python keocptiktok.py
-
-
