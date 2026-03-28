@@ -28,7 +28,7 @@ jobs:
           playwright install --with-deps chromium
 
       # 7️⃣ Run Salework Shopee ETL
-      - name: Run Salework Shopee ETL
+      - name: Run Salework Tiktok ETL
         env:
           SALEWORK_EMAIL: ${{ secrets.SALEWORK_EMAIL }}
           SALEWORK_PASSWORD: ${{ secrets.SALEWORK_PASSWORD }}
