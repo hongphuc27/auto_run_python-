@@ -318,7 +318,7 @@ def main():
 
     # 3 ngày gần nhất: hôm kia, hôm qua, hôm nay
     end_date = today.strftime("%Y-%m-%d")
-    start_date = (today - timedelta(days=1)).strftime("%Y-%m-%d")
+    start_date = (today - timedelta(days=7)).strftime("%Y-%m-%d")
 
     print("🚀 START JOB")
     print(f"📅 DATE RANGE: FROM {start_date} TO {end_date}")
@@ -332,7 +332,7 @@ def main():
         df_final = extract_data_by_date(run_date_str)
         delete_and_insert_by_date(run_date_str, df_final)
 
-    print("\n✅ DONE: refreshed last 3 days")
+    print("\n✅ DONE: refreshed last  days")
 
 
 if __name__ == "__main__":
