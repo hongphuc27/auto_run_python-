@@ -246,6 +246,7 @@ for t in transactions:
         amount = amount_raw
 
     rows_to_insert.append({
+        "STK": "VTB-112003045616",
         "tranDate": dt.strftime("%Y-%m-%d %H:%M:%S"),
         "corresponsiveAccount": t.get("corresponsiveAccount"),
         "corresponsiveName": t.get("corresponsiveName"),
