@@ -1,0 +1,34 @@
+name: Auto Saokebank
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # chạy mỗi 3 phút để test
+  workflow_dispatch:
+
+jobs:
+  run-saokebank:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Saokebank Script
+        env:
+          VTB_USER: ${{ secrets.VTB_USER }}
+          VTB_PASS: ${{ secrets.VTB_PASS }}
+          GCP_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python saokebank_automate_vtb555.py
