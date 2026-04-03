@@ -275,6 +275,7 @@ to_date_sql = datetime.strptime(to_date_str, "%d/%m/%Y").strftime("%Y-%m-%d")
 delete_query = f"""
 DELETE FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}`
 WHERE DATE(tranDate) BETWEEN '{from_date_sql}' AND '{to_date_sql}'
+ AND STK = 'VTB-112003045616'
 """
 
 bq_client.query(delete_query).result()
