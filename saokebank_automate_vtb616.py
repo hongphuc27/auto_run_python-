@@ -241,9 +241,9 @@ for t in transactions:
     amount_raw = Decimal(t["amount"].replace("+", ""))
 
     if t["dorc"] == "D":
-        amount = -amount_raw
+        amount = -abs(amount_raw)
     else:
-        amount = amount_raw
+        amount = abs(amount_raw)
 
     rows_to_insert.append({
         "STK": "VTB-112003045616",
