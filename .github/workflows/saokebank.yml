@@ -31,4 +31,4 @@ jobs:
           VTB_USER: ${{ secrets.VTB_USER }}
           VTB_PASS: ${{ secrets.VTB_PASS }}
           GCP_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-        run: python saokebank_automate.py
+        run: python saokebank_automate_vtb616.py
