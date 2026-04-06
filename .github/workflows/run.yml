@@ -28,7 +28,10 @@ jobs:
       - name: Set Google Credentials
         run: echo "GOOGLE_APPLICATION_CREDENTIALS=google_key.json" >> $GITHUB_ENV
       
-      - name: Run Python
-        run: |
+      - name: Run facebook_performance_bg_automate 
+        run: 
           python facebook_performance_bg_automate.py
+
+      - name: Run apiver2
+        run: 
           python apiver2.py
