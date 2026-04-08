@@ -37,8 +37,8 @@ HEADERS = {
 # =====================================================
 
 # today = datetime.today().date()
-api_date = datetime(2026, 4, 1).date()
-# api_date = today.strftime("%Y-%m-%d")
+today = datetime(2026, 4, 1).date()
+api_date = today.strftime("%Y-%m-%d")
 
 # =====================================================
 # 3. PAYLOAD
