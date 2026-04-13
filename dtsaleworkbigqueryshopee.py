@@ -59,7 +59,7 @@ VN_TZ = timezone(timedelta(hours=7))
 
 def build_date_range():
     today_vn = datetime.now(VN_TZ).date()
-    start_day_vn = today_vn - timedelta(days=22)
+    start_day_vn = today_vn - timedelta(days=103)
 
     start_dt_vn = datetime.combine(start_day_vn, datetime.min.time(), tzinfo=VN_TZ)
     end_dt_vn = datetime.combine(
@@ -271,7 +271,7 @@ def build_dataframe(orders):
 # ========================================
 
 def delete_last_22_days():
-    start_day_vn = datetime.now(VN_TZ).date() - timedelta(days=22)
+    start_day_vn = datetime.now(VN_TZ).date() - timedelta(days=103)
     start_dt_vn = datetime.combine(start_day_vn, datetime.min.time(), tzinfo=VN_TZ)
 
     delete_query = f"""
