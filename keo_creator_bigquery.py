@@ -490,7 +490,7 @@ def run():
     "actual_shop_ads_commission"
 ])
 
-    df["create_time"] = pd.to_datetime(df["create_time"], errors="coerce").dt.strftime("%Y-%m-%d %H:%M:%S")
+    df["create_time"] = pd.to_datetime(df["create_time"], errors="coerce").dt.tz_localize(None)
     df["promotion_position_type"] = pd.to_numeric(
         df["promotion_position_type"], errors="coerce"
     ).astype("Int64")
