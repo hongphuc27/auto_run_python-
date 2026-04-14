@@ -67,33 +67,22 @@ def now_vn() -> datetime:
     return datetime.now(VN_TZ)
 
 
-# def build_date_range() -> tuple[str, str]:
-#     today_vn = now_vn().date()
-#     start_day_vn = today_vn - timedelta(days=1)
-#     end_day_vn = today_vn
-
-#     start_dt_vn = datetime.combine(start_day_vn, datetime.min.time(), tzinfo=VN_TZ)
-#     end_dt_vn = datetime.combine(
-#         end_day_vn,
-#         datetime.max.time().replace(microsecond=0),
-#         tzinfo=VN_TZ,
-#     )
-
-#     date_from = start_dt_vn.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-#     date_to = end_dt_vn.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-#     return date_from, date_to
-
-
-
-
 def build_date_range() -> tuple[str, str]:
-    start_dt_vn = datetime(2026, 1, 1, 0, 0, 0, tzinfo=VN_TZ)
-    end_dt_vn = datetime(2026, 1, 1, 23, 59, 59, tzinfo=VN_TZ)
+    today_vn = now_vn().date()
+    start_day_vn = today_vn - timedelta(days=1)
+    end_day_vn = today_vn
+
+    start_dt_vn = datetime.combine(start_day_vn, datetime.min.time(), tzinfo=VN_TZ)
+    end_dt_vn = datetime.combine(
+        end_day_vn,
+        datetime.max.time().replace(microsecond=0),
+        tzinfo=VN_TZ,
+    )
 
     date_from = start_dt_vn.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     date_to = end_dt_vn.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-
     return date_from, date_to
+
 
 
 def safe_float(value: Any) -> Optional[float]:
