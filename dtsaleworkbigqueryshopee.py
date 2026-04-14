@@ -322,7 +322,7 @@ def main():
         print("⚠️ DataFrame rỗng")
         return
 
-    delete_last_22_days()
+    delete_last_25_days()
     load_to_bigquery(df)
 
 if __name__ == "__main__":
