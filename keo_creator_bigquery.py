@@ -273,7 +273,6 @@
 
 
 
-
 import requests
 import urllib.parse
 from datetime import datetime, timezone, timedelta
@@ -492,6 +491,9 @@ def run():
 ])
 
     df["create_time"] = pd.to_datetime(df["create_time"], errors="coerce")
+    df["promotion_position_type"] = pd.to_numeric(
+        df["promotion_position_type"], errors="coerce"
+    ).astype("Int64")
 
     def to_decimal(x):
         try:
@@ -552,6 +554,13 @@ def run():
 # =====================================================
 if __name__ == "__main__":
     run()
+
+
+
+
+
+
+
 
 
 
