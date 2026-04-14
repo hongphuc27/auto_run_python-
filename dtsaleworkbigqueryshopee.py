@@ -247,9 +247,10 @@ def build_dataframe(orders):
             "createdAt": order.get("createdAt"),
             "price": item_price,
 
-            # thêm 3 cột mới
             "voucher_from_seller": escrow.get("voucher_from_seller"),
             "voucher_from_shopee": escrow.get("voucher_from_shopee"),
+            "order_ams_commission_fee": escrow.get("order_ams_commission_fee"),
+
             "productCode": product_code
         })
 
@@ -263,6 +264,7 @@ def build_dataframe(orders):
     df["price"] = pd.to_numeric(df["price"], errors="coerce")
     df["voucher_from_seller"] = pd.to_numeric(df["voucher_from_seller"], errors="coerce")
     df["voucher_from_shopee"] = pd.to_numeric(df["voucher_from_shopee"], errors="coerce")
+    df["order_ams_commission_fee"] = pd.to_numeric(df["order_ams_commission_fee"], errors="coerce")
 
     return df
 
