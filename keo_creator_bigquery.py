@@ -274,7 +274,6 @@
 
 
 
-
 import requests
 import urllib.parse
 from datetime import datetime, timezone, timedelta
@@ -345,19 +344,19 @@ tz_vn = timezone(timedelta(hours=7))
 # =====================================================
 def fetch_page(page: int, start_time, end_time):
     payload = {
-        "conditions": {
-            "time_period": {
-                "beginning_time": str(start_time),
-                "ending_time": str(end_time)
-            }
-        },
+    "conditions": {
+        "time_period": {
+            "beginning_time": str(start_time),
+            "ending_time": str(end_time)
+        }
+    },
         "page": page,
         "page_size": 100
     }
 
     r = requests.post(URL, headers=HEADERS, json=payload, timeout=30)
     r.raise_for_status()
-    return r.json().get("data", {})
+    return r.json()
 
 # =====================================================
 def run():
@@ -401,11 +400,12 @@ def run():
                 time.sleep(5)
                 continue
 
-            orders = data.get("sku_order_list", [])
+            orders = data.get("orders", [])
 
             print(f"Page {page} | Orders: {len(orders)}")
 
             if not orders:
+
                 empty_retry += 1
 
                 if empty_retry >= 3:
@@ -419,15 +419,9 @@ def run():
             empty_retry = 0
 
             for o in orders:
-                base_info = o.get("sku_order_base_info_for_affiliate_seller", {})
-                commission_info = o.get("sku_order_commission_info_for_affiliate_seller", {})
 
-                creator_info = base_info.get("creator_info", {})
-                sku_order_info = base_info.get("sku_order_info", {})
-                promotion_position_info = sku_order_info.get("promotion_position_info", {})
-
-                main_order_id = sku_order_info.get("main_order_id")
-                create_time_ms = sku_order_info.get("create_time")
+                main_order_id = o.get("main_order_id")
+                create_time_ms = o.get("create_time")
 
                 if not main_order_id or not create_time_ms:
                     continue
@@ -436,42 +430,40 @@ def run():
                     create_time_ms / 1000
                 ).replace(tzinfo=None)
 
-                creator_nickname = creator_info.get("creator_nickname")
-                creator_username = creator_info.get("creator_username")
+                sku_details = o.get("sku_detail", [])
 
-                cos_ratio = commission_info.get("standard_cos_ratio")
-                estimated_cos_fee = (
-                    commission_info.get("est_standard_commission", {}) or {}
-                ).get("amount")
+                for sku in sku_details:
 
-                shop_ads_commission_ratio = commission_info.get("shop_ads_cos_ratio")
-                estimated_shop_ads_commission = (
-                    commission_info.get("est_shop_ads_commission", {}) or {}
-                ).get("amount")
+                    creator_nickname = sku.get("creator_nickname")
+                    creator_username = sku.get("creator_username")
 
-                actual_standard_commission = (
-                    commission_info.get("actual_standard_commission", {}) or {}
-                ).get("amount")
+                    cos_ratio = sku.get("cos_ratio")
+                    estimated_cos_fee = sku.get("estimated_cos_fee")
+                    actual_cos_fee = sku.get("actual_cos_fee")
 
-                actual_shop_ads_commission = (
-                    commission_info.get("actual_shop_ads_commission", {}) or {}
-                ).get("amount")
+                    shop_ads_commission_ratio = sku.get("shop_ads_commission_ratio")
+                    estimated_shop_ads_commission = sku.get("estimated_shop_ads_commission")
+                    actual_shop_ads_commission = sku.get("actual_shop_ads_commission")
 
-                promotion_position_type = promotion_position_info.get("promotion_type")
 
-                all_rows.append((
-                    int(main_order_id),
-                    creator_nickname,
-                    creator_username,
-                    promotion_position_type,
-                    create_time,
-                    cos_ratio,
-                    estimated_cos_fee,
-                    shop_ads_commission_ratio,
-                    estimated_shop_ads_commission,
-                    actual_standard_commission,
-                    actual_shop_ads_commission
-                ))
+                    promotion_position_type = (
+                        sku.get("promotion_position", {})
+                        .get("promotion_position_type")
+                    )
+
+                    all_rows.append((
+                        int(main_order_id),
+                        creator_nickname,
+                        creator_username,
+                        promotion_position_type,
+                        create_time,
+                        cos_ratio,
+                        estimated_cos_fee,
+                        actual_cos_fee,
+                        shop_ads_commission_ratio,
+                        estimated_shop_ads_commission,
+                        actual_shop_ads_commission
+                    ))
 
             page += 1
             time.sleep(0.3)
@@ -493,9 +485,9 @@ def run():
     "create_time",
     "cos_ratio",
     "estimated_cos_fee",
+    "actual_cos_fee",
     "shop_ads_commission_ratio",
     "estimated_shop_ads_commission",
-    "actual_standard_commission",
     "actual_shop_ads_commission"
 ])
 
@@ -512,8 +504,11 @@ def run():
 
     df["cos_ratio"] = df["cos_ratio"].apply(to_decimal)
     df["estimated_cos_fee"] = df["estimated_cos_fee"].apply(to_decimal)
+    df["actual_cos_fee"] = df["actual_cos_fee"].apply(to_decimal)
     df["shop_ads_commission_ratio"] = df["shop_ads_commission_ratio"].apply(to_decimal)
     df["estimated_shop_ads_commission"] = df["estimated_shop_ads_commission"].apply(to_decimal)
+    df["actual_shop_ads_commission"] = df["actual_shop_ads_commission"].apply(to_decimal)
+
 
     # drop row lỗi
     df = df.dropna(subset=["main_order_id"])
@@ -557,6 +552,13 @@ def run():
 # =====================================================
 if __name__ == "__main__":
     run()
+
+
+
+
+
+
+
 
 
 
