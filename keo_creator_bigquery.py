@@ -87,7 +87,7 @@ def run():
     all_rows = []
 
     now_vn = datetime.now(tz=tz_vn)
-    start_date = (now_vn - timedelta(days=6)).replace(tzinfo=None)
+    start_date = (now_vn - timedelta(days=24)).replace(tzinfo=None)
     end_date = now_vn.replace(tzinfo=None)
 
     current_date = start_date
@@ -233,19 +233,19 @@ def run():
 
     table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
 
-    # # ==============================
-    # # DELETE DATA TODAY + YESTERDAY
-    # # ==============================
-    # delete_query = f"""
-    # DELETE FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}`
-    # WHERE DATE(create_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
-    # """
+    # ==============================
+    # DELETE DATA TODAY + YESTERDAY
+    # ==============================
+    delete_query = f"""
+    DELETE FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}`
+    WHERE DATE(create_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL  DAY)
+    """
 
-    # client.query(delete_query).result()
+    client.query(delete_query).result()
 
-    # print("Old data (today + yesterday) deleted.")
+    print("Old data (today + yesterday) deleted.")
 
-    # # ==============================
+    # ==============================
 
     job_config = bigquery.LoadJobConfig(
         write_disposition="WRITE_APPEND"
