@@ -272,7 +272,7 @@ def run():
     # ==============================
     delete_query = f"""
     DELETE FROM `{table_ref}`
-    WHERE DATE(create_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL  DAY)
+    WHERE DATE(create_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL 24 DAY)
     """
 
     client.query(delete_query).result()
