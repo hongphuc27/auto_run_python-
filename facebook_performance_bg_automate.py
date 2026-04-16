@@ -140,7 +140,7 @@ if "ad_id" in df.columns:
 # =========================
 # DEFINE CUTOFF (20 NGÀY)
 # =========================
-cutoff_date = (datetime.today() - timedelta(days=20)).date()
+cutoff_date = (datetime.today() - timedelta(days=90)).date()
 print("Cutoff date:", cutoff_date)
 
 # =========================
