@@ -18,7 +18,7 @@ PARAMS = {
     "locale": "vi",
     "language": "vi",
     "oec_seller_id": "7494545630022240481",
-    "aadvid": "7625589331687948309"
+    "aadvid": "7628879252477231124"
 }
 
 HEADERS = {
