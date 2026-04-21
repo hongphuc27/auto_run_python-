@@ -87,7 +87,7 @@ def run():
     all_rows = []
 
     now_vn = datetime.now(tz=tz_vn)
-    start_date = (now_vn - timedelta(days=24)).replace(tzinfo=None)
+    start_date = (now_vn - timedelta(days=25)).replace(tzinfo=None)
     end_date = now_vn.replace(tzinfo=None)
 
     current_date = start_date
@@ -238,7 +238,7 @@ def run():
     # ==============================
     delete_query = f"""
     DELETE FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}`
-    WHERE DATE(create_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL 24 DAY)
+    WHERE DATE(create_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL 25 DAY)
     """
 
     client.query(delete_query).result()
