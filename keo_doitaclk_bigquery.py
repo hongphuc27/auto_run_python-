@@ -88,7 +88,7 @@ def run():
     all_rows = []
 
     now_vn = datetime.now(tz=tz_vn)
-    start_date = (now_vn - timedelta(days=25)).replace(tzinfo=None)
+    start_date = (now_vn - timedelta(days=30)).replace(tzinfo=None)
     end_date = now_vn.replace(tzinfo=None)
 
     
@@ -272,7 +272,7 @@ def run():
     # ==============================
     delete_query = f"""
     DELETE FROM `{table_ref}`
-    WHERE DATE(create_time) >= DATE_SUB(CURRENT_DATE("Asia/Ho_Chi_Minh"), INTERVAL 25 DAY)
+    WHERE DATE(create_time) >= DATE_SUB(CURRENT_DATE("Asia/Ho_Chi_Minh"), INTERVAL 30 DAY)
     """
 
     client.query(delete_query).result()
