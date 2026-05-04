@@ -69,7 +69,7 @@ def now_vn() -> datetime:
 
 def build_date_range() -> tuple[str, str]:
     today_vn = now_vn().date()
-    start_day_vn = today_vn - timedelta(days=1)
+    start_day_vn = today_vn - timedelta(days=6)
     end_day_vn = today_vn
 
     start_dt_vn = datetime.combine(start_day_vn, datetime.min.time(), tzinfo=VN_TZ)
@@ -371,7 +371,7 @@ def ensure_table_exists() -> None:
 def delete_recent_rows() -> None:
     query = f"""
     DELETE FROM `{table_ref}`
-    WHERE date >= DATE_SUB(CURRENT_DATE("Asia/Ho_Chi_Minh"), INTERVAL 1 DAY)
+    WHERE date >= DATE_SUB(CURRENT_DATE("Asia/Ho_Chi_Minh"), INTERVAL 6 DAY)
     """
     print("🧹 Deleting yesterday and today...")
     bq_client.query(query).result()
