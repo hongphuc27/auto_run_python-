@@ -280,6 +280,9 @@ def build_dataframe(orders):
     df["commission_fee"] = pd.to_numeric(df["commission_fee"], errors="coerce")
     df["service_fee"] = pd.to_numeric(df["service_fee"], errors="coerce")
     df["seller_transaction_fee"] = pd.to_numeric(df["seller_transaction_fee"], errors="coerce")
+    df["customer_userId"] = df["customer_userId"].astype("string")
+    df["item_id"] = df["item_id"].astype("string")
+    df["model_id"] = df["model_id"].astype("string")
 
     return df
 
