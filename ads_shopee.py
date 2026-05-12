@@ -371,7 +371,7 @@ def ensure_table_exists() -> None:
 def delete_recent_rows() -> None:
     query = f"""
     DELETE FROM `{table_ref}`
-    WHERE date >= DATE_SUB(CURRENT_DATE("Asia/Ho_Chi_Minh"), INTERVAL 6 DAY)
+    WHERE date >= DATE_SUB(CURRENT_DATE("Asia/Ho_Chi_Minh"), INTERVAL 16 DAY)
     """
     print("🧹 Deleting yesterday and today...")
     bq_client.query(query).result()
