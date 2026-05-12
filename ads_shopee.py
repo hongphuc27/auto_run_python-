@@ -69,7 +69,7 @@ def now_vn() -> datetime:
 
 def build_date_range() -> tuple[str, str]:
     today_vn = now_vn().date()
-    start_day_vn = today_vn - timedelta(days=6)
+    start_day_vn = today_vn - timedelta(days=16)
     end_day_vn = today_vn
 
     start_dt_vn = datetime.combine(start_day_vn, datetime.min.time(), tzinfo=VN_TZ)
