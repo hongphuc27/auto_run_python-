@@ -50,7 +50,6 @@ KEEP_COLUMNS = [
     "item_name",
     "model_id",
     "model_name",
-    "tiktokShopId",
 ]
 
 PROJECT_ID = "rhysman-data-warehouse-488306"
@@ -76,7 +75,7 @@ VN_TZ = timezone(timedelta(hours=7))
 
 def build_date_range():
     today_vn = datetime.now(VN_TZ).date()
-    start_day_vn = today_vn - timedelta(days=2)
+    start_day_vn = today_vn - timedelta(days=25)
 
     start_dt_vn = datetime.combine(start_day_vn, datetime.min.time(), tzinfo=VN_TZ)
     end_dt_vn = datetime.combine(
@@ -274,8 +273,6 @@ def build_dataframe(orders):
 
     # Merge thêm item vào dataframe chính
     df = df.merge(items_df, on="_id", how="left")
-    df["tiktokShopId"] = df.get("tiktokShopId", df.get("tiktok_shop_id"))
-
     # Giữ logic KEEP_COLUMNS cũ
     available_columns = [c for c in KEEP_COLUMNS if c in df.columns]
     df = df[available_columns].copy()
@@ -295,7 +292,7 @@ def build_dataframe(orders):
 # giữ logic xóa theo code 1
 # ========================================
 def delete_last_22_days():
-    start_day_vn = datetime.now(VN_TZ).date() - timedelta(days=2)
+    start_day_vn = datetime.now(VN_TZ).date() - timedelta(days=25)
     start_dt_vn = datetime.combine(start_day_vn, datetime.min.time(), tzinfo=VN_TZ)
 
     delete_query = f"""
