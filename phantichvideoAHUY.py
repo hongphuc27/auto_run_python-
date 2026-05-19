@@ -318,7 +318,7 @@ def main():
 
     # 3 ngày gần nhất: hôm kia, hôm qua, hôm nay
     end_date = today.strftime("%Y-%m-%d")
-    start_date = (today - timedelta(days=12)).strftime("%Y-%m-%d")
+    start_date = (today - timedelta(days=13)).strftime("%Y-%m-%d")
 
     print("🚀 START JOB")
     print(f"📅 DATE RANGE: FROM {start_date} TO {end_date}")
