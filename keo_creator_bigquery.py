@@ -174,6 +174,7 @@ def run():
 
                     all_rows.append((
                         int(main_order_id),
+                        "7494545630022240481",
                         creator_nickname,
                         creator_username,
                         promotion_position_type,
@@ -198,6 +199,7 @@ def run():
 
     df = pd.DataFrame(all_rows, columns=[
     "main_order_id",
+    "id_shop",
     "creator_nickname",
     "creator_username",
     "promotion_position_type",
@@ -238,7 +240,7 @@ def run():
     # ==============================
     delete_query = f"""
     DELETE FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}`
-    WHERE DATE(create_time) >= DATE_SUB(CURRENT_DATE("Asia/Ho_Chi_Minh"), INTERVAL 26 DAY)
+    WHERE id_shop = '7494545630022240481' DATE(create_time) >= DATE_SUB(CURRENT_DATE("Asia/Ho_Chi_Minh"), INTERVAL 26 DAY) AND 
     """
 
     client.query(delete_query).result()
