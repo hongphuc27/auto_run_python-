@@ -140,8 +140,8 @@ if "ad_id" in df.columns:
 # =========================
 # DEFINE CUTOFF
 # =========================
-cutoff_date = datetime(2025, 1, 1).date()
-end_date = datetime(2025, 1, 31).date()
+cutoff_date = datetime(2025, 2, 1).date()
+end_date = datetime(2025, 5, 31).date()
 print("Cutoff date:", cutoff_date, "→", end_date)
 
 # =========================
