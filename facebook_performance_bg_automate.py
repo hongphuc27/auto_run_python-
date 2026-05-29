@@ -148,7 +148,7 @@ print("Cutoff date:", cutoff_date)
 # =========================
 delete_query = f"""
 DELETE FROM `{TABLE_FULL_ID}`
-WHERE ngay_tao_don >= DATE('{cutoff_date}')
+WHERE nguon_don != 'si ngoai san' AND ngay_tao_don >= DATE('{cutoff_date}')
 """
 
 delete_job = bq_client.query(delete_query)
