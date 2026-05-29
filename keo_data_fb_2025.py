@@ -17,7 +17,7 @@ PROJECT_ID = "rhysman-data-warehouse-488306"
 DATASET_ID = "rhysman"
 TABLE_ID = "fact_order_sales_facebook_performance"
 
-SPREADSHEET_ID = "1XLSz6Mz_r8SdAxK2UIqAACmoXp1kahQ_0delRM-LvgI"
+SPREADSHEET_ID = "1g5dFpSvIkn0hK-pjRjguES6AMpDHwhODljEaZx-rFfQ"
 WORKSHEET_NAME = "PosSheets(Report cho Cường Thảo (PhucLH tạo))"
 
 TABLE_FULL_ID = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
@@ -138,33 +138,22 @@ if "ad_id" in df.columns:
 
 
 # =========================
-# DEFINE CUTOFF (20 NGÀY)
+# DEFINE CUTOFF
 # =========================
-cutoff_date = (datetime.today() - timedelta(days=31)).date()
-print("Cutoff date:", cutoff_date)
+cutoff_date = datetime(2025, 1, 1).date()
+end_date = datetime(2025, 1, 31).date()
+print("Cutoff date:", cutoff_date, "→", end_date)
 
 # =========================
-# DELETE 20 NGÀY GẦN NHẤT TRONG BIGQUERY
-# =========================
-delete_query = f"""
-DELETE FROM `{TABLE_FULL_ID}`
-WHERE nguon_don != 'si ngoai san' AND ngay_tao_don >= DATE('{cutoff_date}')
-"""
-
-delete_job = bq_client.query(delete_query)
-delete_job.result()
-
-print("✅ Deleted last 20 days in BigQuery")
-
-# =========================
-# FILTER: CHỈ LẤY 20 NGÀY GẦN NHẤT
+# FILTER: CHỈ LẤY KHOẢNG NGÀY CHỈ ĐỊNH
 # =========================
 if "ngay_tao_don" in df.columns:
-    df = df[df["ngay_tao_don"] >= cutoff_date]
+    df = df[
+        (df["ngay_tao_don"] >= cutoff_date) &
+        (df["ngay_tao_don"] <= end_date)
+    ]
 
-print(f"Reloading {len(df)} rows from last 20 days")
-
-
+print(f"Reloading {len(df)} rows from {cutoff_date} to {end_date}")
 
 # =========================
 # LOAD TO BIGQUERY
