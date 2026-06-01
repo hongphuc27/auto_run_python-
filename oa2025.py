@@ -18,7 +18,7 @@ DATASET_ID = "rhysman"
 TABLE_ID = "fact_cskh_zaloOA"
 
 SPREADSHEET_ID = "1rm3RUNAVDyKWcsGuRhi4K4yv_S73dDjHM2mS5mmy9oU"
-WORKSHEET_NAME = "PosSheets(CSKH- OA)"
+WORKSHEET_NAME = "PosSheets(lili)"
 
 TABLE_FULL_ID = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
 
