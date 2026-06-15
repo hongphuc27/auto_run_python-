@@ -39,7 +39,7 @@ URL = (
     "&browser_platform=Win32"
     "&browser_name=Mozilla"
     "&timezone_name=Asia%2FSaigon"
-    "&shop_region=VN
+    "&shop_region=VN"
     "&oec_seller_id=7494545630022240481"
     "&msToken=N39EX-R9gz5-RWGhKsnkNcTiBj_s9RJywGz1KxvmlifSCTicC2Z84UP1BYyPLNipT9_XC7wx4EAflfJ5T5jO6fenzwTdNjSF3G6012rCC0dO5dOqVZ7TNutSbVVOKQXnQvfyQQ=="
     "&X-Bogus=DFSzswVOy4LxJoKzCix8ZcVRr3Em"
