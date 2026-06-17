@@ -9,11 +9,11 @@ jobs:
   run-etl:
     runs-on: ubuntu-latest
 
-    steps:
+    # steps:
 
-      # 1️⃣ Clone repository
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    #   # 1️⃣ Clone repository
+    #   - name: Checkout repository
+    #     uses: actions/checkout@v4
 
       # 2️⃣ Setup Python
       - name: Setup Python
