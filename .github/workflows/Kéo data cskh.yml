@@ -2,7 +2,8 @@ name: Kéo dữ liệu cskh (Linh)
 
 on:
   schedule:
-    - cron: "0 */1 * * *"
+    - cron: "*/59 * * * *"   # chạy mỗi 40 phút
+
   workflow_dispatch:
 
 jobs:
