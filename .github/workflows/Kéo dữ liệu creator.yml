@@ -9,11 +9,11 @@ jobs:
   run-etl:
     runs-on: ubuntu-latest
 
-    # steps:
+    steps:
 
-    #   # 1️⃣ Clone repository
-    #   - name: Checkout repository
-    #     uses: actions/checkout@v4
+      # 1️⃣ Clone repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       # 2️⃣ Setup Python
       - name: Setup Python
@@ -27,14 +27,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas requests google-cloud-bigquery google-auth pyarrow
 
-      # 4️⃣ Run Creator TikTok ETL
-      - name: Run Creator TikTok ETL
-        env:
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-        run: python keo_creator_bigquery.py
+      # # 4️⃣ Run Creator TikTok ETL
+      # - name: Run Creator TikTok ETL
+      #   env:
+      #     GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      #   run: python keo_creator_bigquery.py
 
-      # 5️⃣ Run Doitac TikTok ETL
-      - name: Run Doitac TikTok ETL
-        env:
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-        run: python keo_doitaclk_bigquery.py
+      # # 5️⃣ Run Doitac TikTok ETL
+      # - name: Run Doitac TikTok ETL
+      #   env:
+      #     GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      #   run: python keo_doitaclk_bigquery.py
