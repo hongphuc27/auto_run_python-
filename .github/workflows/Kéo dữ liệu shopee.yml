@@ -28,19 +28,19 @@ jobs:
           pip install pandas requests google-cloud-bigquery google-auth pyarrow playwright
           playwright install --with-deps chromium
 
-      # 7️⃣ Run Salework Shopee ETL
-      - name: Run Salework Shopee ETL
-        env:
-          SALEWORK_EMAIL: ${{ secrets.SALEWORK_EMAIL }}
-          SALEWORK_PASSWORD: ${{ secrets.SALEWORK_PASSWORD }}
-          SALEWORK_COMPANYCODE: ${{ secrets.SALEWORK_COMPANYCODE }}
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-        run: python dtsaleworkbigqueryshopee.py
+      # # 7️⃣ Run Salework Shopee ETL
+      # - name: Run Salework Shopee ETL
+      #   env:
+      #     SALEWORK_EMAIL: ${{ secrets.SALEWORK_EMAIL }}
+      #     SALEWORK_PASSWORD: ${{ secrets.SALEWORK_PASSWORD }}
+      #     SALEWORK_COMPANYCODE: ${{ secrets.SALEWORK_COMPANYCODE }}
+      #     GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      #   run: python dtsaleworkbigqueryshopee.py
 
-      - name: Run Cost Salework Shopee ETL
-        env:
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          SALEWORK_EMAIL: ${{ secrets.SALEWORK_EMAIL }}
-          SALEWORK_PASSWORD: ${{ secrets.SALEWORK_PASSWORD }}
-          SALEWORK_COMPANYCODE: ${{ secrets.SALEWORK_COMPANYCODE }}
-        run: python ads_shopee.py
+      # - name: Run Cost Salework Shopee ETL
+      #   env:
+      #     GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      #     SALEWORK_EMAIL: ${{ secrets.SALEWORK_EMAIL }}
+      #     SALEWORK_PASSWORD: ${{ secrets.SALEWORK_PASSWORD }}
+      #     SALEWORK_COMPANYCODE: ${{ secrets.SALEWORK_COMPANYCODE }}
+      #   run: python ads_shopee.py
