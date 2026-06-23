@@ -14,7 +14,7 @@ import os
 # SERVICE_ACCOUNT_FILE = r"E:\hongphuc\Source code\code kéo dữ liệu SQL Sever (Thảo)\rhysman-data-warehouse-488306-8db2b940e56a.json"
 
 PROJECT_ID = "rhysman-data-warehouse-488306"
-DATASET_ID = "rhysman"
+DATASET_ID = "rhysman_bronze"
 TABLE_ID = "fact_cskh_fb_si"
 
 SPREADSHEET_ID = "1QOYiRw1Z4PM4AfNSHBpOR7-4cc29jN-cTfSxR3s_0Cs"
