@@ -57,7 +57,7 @@ print(f"Loaded {len(df)} rows from Google Sheet")
 # CLEAN ID
 # =========================
 df["ID"] = df["ID"].astype(str).str.strip()
-df = df[df["ID"].notna() & (df["ID"] != "")]
+# df = df[df["ID"].notna() & (df["ID"] != "")]
 
 
 # =========================
@@ -115,13 +115,13 @@ df = df[required_columns].copy()
 # =========================
 # REMOVE INVALID ID
 # =========================
-INVALID_IDS = {"-", "_"}
+# INVALID_IDS = {"-", "_"}
 
-df = df[
-    df["ID"].notna() &
-    (~df["ID"].isin(INVALID_IDS)) &
-    (df["ID"].str.strip() != "")
-].copy()
+# df = df[
+#     df["ID"].notna() &
+#     (~df["ID"].isin(INVALID_IDS)) &
+#     (df["ID"].str.strip() != "")
+# ].copy()
 
 print(f"After invalid-id filter: {len(df)} rows")
 
@@ -154,6 +154,12 @@ df["Ngay_tao_don"] = pd.to_datetime(
     errors="coerce",
     dayfirst=True
 )
+
+df["Ngay_tao_don_fill"] = df["Ngay_tao_don"].ffill()
+
+df.loc[df["ID"] == "_", "Ngay_tao_don"] = df.loc[df["ID"] == "_", "Ngay_tao_don_fill"]
+
+df = df.drop(columns=["Ngay_tao_don_fill"])
 
 df["Thoi_diem_cap_nhat_trang_trai"] = pd.to_datetime(
     df["Thoi_diem_cap_nhat_trang_trai"],
@@ -195,11 +201,13 @@ df["So_luong"] = pd.to_numeric(df["So_luong"], errors="coerce").astype("Int64")
 # =========================
 # DEFINE CUTOFF (25 NGÀY)
 # =========================
-cutoff_date = (datetime.today() - timedelta(days=174)).date()
-print("Cutoff date:", cutoff_date)
+# cutoff_date = (datetime.today() - timedelta(days=174)).date()
+# print("Cutoff date:", cutoff_date)
+cutoff_date = datetime(2026, 1, 1).date()
+print("Start date:", cutoff_date)
 
 # =========================
-# DELETE 20 NGÀY GẦN NHẤT TRONG BIGQUERY
+# DELETE DỮ LIỆU TỪ 01/01/2026 TRỞ ĐI TRONG BIGQUERY
 # =========================
 delete_query = f"""
 DELETE FROM `{TABLE_FULL_ID}`
@@ -209,18 +217,15 @@ WHERE DATE(Ngay_tao_don) >= DATE('{cutoff_date}')
 delete_job = bq_client.query(delete_query)
 delete_job.result()
 
-print("✅ Deleted last 25 days in BigQuery")
+print("✅ Deleted data from 2026-01-01 in BigQuery")
 
 # =========================
-# FILTER: CHỈ LẤY 20 NGÀY GẦN NHẤT
+# FILTER: CHỈ LẤY DỮ LIỆU TỪ 01/01/2026 TRỞ ĐI
 # =========================
-
-
 df = df[df["Ngay_tao_don"].notna()]
 df = df[df["Ngay_tao_don"].dt.date >= cutoff_date]
 
-print(f"Reloading {len(df)} rows from last 25 days")
-
+print(f"Reloading {len(df)} rows from 2026-01-01")
 
 # =========================
 # LOAD TO BIGQUERY
