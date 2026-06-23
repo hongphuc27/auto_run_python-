@@ -201,9 +201,7 @@ df["So_luong"] = pd.to_numeric(df["So_luong"], errors="coerce").astype("Int64")
 # =========================
 # DEFINE CUTOFF (25 NGÀY)
 # =========================
-# cutoff_date = (datetime.today() - timedelta(days=174)).date()
-# print("Cutoff date:", cutoff_date)
-cutoff_date = datetime(2026, 1, 1).date()
+cutoff_date = (datetime.today() - timedelta(days=30)).date()
 print("Start date:", cutoff_date)
 
 # =========================
