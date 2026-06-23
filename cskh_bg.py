@@ -69,6 +69,7 @@ rename_map = {
     "Thời điểm tạo đơn": "Thoi_diem_tao_don",
     "Doanh thu chưa trừ phí sàn": "Doanh_thu_chua_tru_phi_san",
     "Người xử lý": "Nguoi_xu_ly",
+    "Nhân viên CSKH": "Nhan_vien_CSKH",
     "Thẻ": "The"
 }
 
@@ -84,6 +85,7 @@ required_columns = [
     "Thoi_diem_tao_don",
     "Doanh_thu_chua_tru_phi_san",
     "Nguoi_xu_ly",
+    "Nhan_vien_CSKH",
     "The"
 ]
 
@@ -136,6 +138,7 @@ df["Thoi_diem_tao_don"] = pd.to_datetime(
 )
 
 df["Nguoi_xu_ly"] = df["Nguoi_xu_ly"].astype(str).str.strip().replace({"nan": None, "None": None, "": None})
+df["Nhan_vien_CSKH"] = df["Nhan_vien_CSKH"].astype(str).str.strip().replace({"nan": None, "None": None, "": None})
 df["The"] = df["The"].astype(str).str.strip().replace({"nan": None, "None": None, "": None})
 
 
