@@ -149,23 +149,39 @@ def to_decimal(x):
 
 df["Doanh_thu_chua_tru_phi_san"] = df["Doanh_thu_chua_tru_phi_san"].apply(to_decimal)
 
+# =========================
+# CLEAN DATE + FILL DATE FOR ID = "_"
+# =========================
+
 df["Ngay_tao_don"] = pd.to_datetime(
     df["Ngay_tao_don"],
     errors="coerce",
     dayfirst=True
 )
 
-df["Ngay_tao_don_fill"] = df["Ngay_tao_don"].ffill()
-
-df.loc[df["ID"] == "_", "Ngay_tao_don"] = df.loc[df["ID"] == "_", "Ngay_tao_don_fill"]
-
-df = df.drop(columns=["Ngay_tao_don_fill"])
-
 df["Thoi_diem_cap_nhat_trang_trai"] = pd.to_datetime(
     df["Thoi_diem_cap_nhat_trang_trai"],
     errors="coerce",
     dayfirst=True
 )
+
+# Tạo cột fill xuống từ dòng phía trên
+df["Ngay_tao_don_fill"] = df["Ngay_tao_don"].ffill()
+df["Thoi_diem_cap_nhat_trang_trai_fill"] = df["Thoi_diem_cap_nhat_trang_trai"].ffill()
+
+# Chỉ fill cho dòng con có ID = "_"
+df.loc[df["ID"] == "_", "Ngay_tao_don"] = df.loc[df["ID"] == "_", "Ngay_tao_don_fill"]
+
+df.loc[df["ID"] == "_", "Thoi_diem_cap_nhat_trang_trai"] = df.loc[
+    df["ID"] == "_",
+    "Thoi_diem_cap_nhat_trang_trai_fill"
+]
+
+# Xóa cột phụ
+df = df.drop(columns=[
+    "Ngay_tao_don_fill",
+    "Thoi_diem_cap_nhat_trang_trai_fill"
+])
 
 text_columns = [
     "ID",
