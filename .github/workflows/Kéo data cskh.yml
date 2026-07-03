@@ -33,3 +33,11 @@ jobs:
         run: |
           python cskh_bg.py
           python cskhOA_bg.py
+          
+      - name: Run facebook_performance_bg_automate 
+        run: 
+          python facebook_performance_bg_automate.py
+
+      - name: Run apiver2
+        run: 
+          python apiver2.py
