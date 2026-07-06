@@ -1,4 +1,4 @@
-name: Kéo dữ liệu tiktok
+name: Kéo dữ liệu update
 
 on:
   schedule:
