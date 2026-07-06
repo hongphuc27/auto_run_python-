@@ -24,10 +24,10 @@ jobs:
           pip install pandas requests google-cloud-bigquery google-auth pyarrow playwright
           playwright install --with-deps chromium
 
-      - name: Run Salework TikTok ETL
+      - name: Run Salework TikTok Update
         env:
-           SALEWORK_EMAIL: ${{ secrets.SALEWORK_EMAIL }}
-           SALEWORK_PASSWORD: ${{ secrets.SALEWORK_PASSWORD }}
-           SALEWORK_COMPANYCODE: ${{ secrets.SALEWORK_COMPANYCODE }}
-           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-         run: python keo_time_update.py
+          SALEWORK_EMAIL: ${{ secrets.SALEWORK_EMAIL }}
+          SALEWORK_PASSWORD: ${{ secrets.SALEWORK_PASSWORD }}
+          SALEWORK_COMPANYCODE: ${{ secrets.SALEWORK_COMPANYCODE }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: python keo_time_update.py
