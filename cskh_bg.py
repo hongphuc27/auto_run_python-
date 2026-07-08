@@ -67,6 +67,7 @@ rename_map = {
     "ID": "ID",
     "Trạng thái": "Trang_thai",
     "Thời điểm tạo đơn": "Thoi_diem_tao_don",
+    "Ngày cập nhật": "Ngay_cap_nhat",
     "Doanh thu chưa trừ phí sàn": "Doanh_thu_chua_tru_phi_san",
     "Người xử lý": "Nguoi_xu_ly",
     "Nhân viên CSKH": "Nhan_vien_CSKH",
@@ -83,6 +84,7 @@ required_columns = [
     "ID",
     "Trang_thai",
     "Thoi_diem_tao_don",
+    "Ngay_cap_nhat",
     "Doanh_thu_chua_tru_phi_san",
     "Nguoi_xu_ly",
     "Nhan_vien_CSKH",
@@ -137,6 +139,12 @@ df["Thoi_diem_tao_don"] = pd.to_datetime(
     dayfirst=True
 )
 
+df["Ngay_cap_nhat"] = pd.to_datetime(
+    df["Ngay_cap_nhat"],
+    errors="coerce",
+    dayfirst=True
+)
+
 df["Nguoi_xu_ly"] = df["Nguoi_xu_ly"].astype(str).str.strip().replace({"nan": None, "None": None, "": None})
 df["Nhan_vien_CSKH"] = df["Nhan_vien_CSKH"].astype(str).str.strip().replace({"nan": None, "None": None, "": None})
 df["The"] = df["The"].astype(str).str.strip().replace({"nan": None, "None": None, "": None})
@@ -145,7 +153,7 @@ df["The"] = df["The"].astype(str).str.strip().replace({"nan": None, "None": None
 # =========================
 # DEFINE CUTOFF (25 NGÀY)
 # =========================
-cutoff_date = (datetime.today() - timedelta(days=25)).date()
+cutoff_date = (datetime.today() - timedelta(days=78)).date()
 print("Cutoff date:", cutoff_date)
 
 # =========================
