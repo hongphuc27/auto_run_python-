@@ -17,8 +17,8 @@ PROJECT_ID = "rhysman-data-warehouse-488306"
 DATASET_ID = "rhysman"
 TABLE_ID = "fact_cskh_zaloOA"
 
-SPREADSHEET_ID = "1LsmJdHNok5uCR_3VJvb2pEiYQyxyYpn-bzc6BHnDd9M"
-WORKSHEET_NAME = "PosSheets(lili)"
+SPREADSHEET_ID = "14nWpGdEScvNXqnoZnXhRvzCoVhV03tVdYofLYKVxt2w"
+WORKSHEET_NAME = "PosSheets(lili2)"
 
 TABLE_FULL_ID = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
 
@@ -138,7 +138,7 @@ df["The"] = df["The"].astype(str).str.strip().replace({"nan": None, "None": None
 # =========================
 # DEFINE CUTOFF (25 NGÀY)
 # =========================
-cutoff_date = (datetime.today() - timedelta(days=25)).date()
+cutoff_date = (datetime.today() - timedelta(days=99)).date()
 # cutoff_date = datetime(2026, 1, 1).date()
 print("Cutoff date:", cutoff_date)
 
