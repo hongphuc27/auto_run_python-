@@ -63,6 +63,7 @@ rename_map = {
     "ID": "ID",
     "Trạng thái": "Trang_thai",
     "Thời điểm tạo đơn": "Thoi_diem_tao_don",
+    "Thời điểm cập nhật trạng thái": "Thoi_diem_cap_nhat_trang_thai",
     "Doanh thu chưa trừ phí sàn": "Doanh_thu_chua_tru_phi_san",
     "Nhân viên CSKH": "Nhan_vien_CSKH",
     "Thẻ": "The"
@@ -78,6 +79,7 @@ required_columns = [
     "ID",
     "Trang_thai",
     "Thoi_diem_tao_don",
+    "Thoi_diem_cap_nhat_trang_thai",
     "Doanh_thu_chua_tru_phi_san",
     "Nhan_vien_CSKH",
     "The"
@@ -127,6 +129,12 @@ df["Doanh_thu_chua_tru_phi_san"] = df["Doanh_thu_chua_tru_phi_san"].apply(to_dec
 
 df["Thoi_diem_tao_don"] = pd.to_datetime(
     df["Thoi_diem_tao_don"],
+    errors="coerce",
+    dayfirst=True
+)
+
+df[""Thoi_diem_cap_nhat_trang_thai""] = pd.to_datetime(
+    df[""Thoi_diem_cap_nhat_trang_thai""],
     errors="coerce",
     dayfirst=True
 )
