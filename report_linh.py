@@ -1,3 +1,14 @@
+# -*- coding: utf-8 -*-
+"""ETL: Google Sheets -> BigQuery (rhysman.fact_fb_zalo_si)
+
+- Doc sheet PosSheets(FB TC CS), fill xuong ID / Trang thai / Thoi diem tao don /
+  Nhan vien CSKH cho cac dong con cua don nhieu san pham (fill theo cum don, khong lan don khac).
+- Chi lay du lieu WINDOW_DAYS ngay gan nhat (theo gio VN).
+- Update BigQuery: DELETE cua so WINDOW_DAYS ngay roi APPEND du lieu moi keo ve.
+
+Chay tren GitHub Actions: dat secret vao file va tro bien moi truong
+GOOGLE_APPLICATION_CREDENTIALS toi file do.
+"""
 import os
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -18,7 +29,7 @@ TABLE_FULL_ID = f"{PROJECT_ID}.rhysman.fact_fb_zalo_si"
 WINDOW_DAYS = 25
 TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
-FILL_COLS = ["ID", "Trạng thái", "Thời điểm tạo đơn"]
+FILL_COLS = ["ID", "Trạng thái", "Thời điểm tạo đơn", "Nhân viên CSKH"]
 PLACEHOLDERS = {"-", "_", ""}
 
 # ten cot BigQuery -> ten cot tren Google Sheet
@@ -29,12 +40,11 @@ COLUMN_MAP = {
     "the": "Thẻ",
     "nv_xac_nhan": "NV xác nhận",
     "nguoi_xu_ly": "Người xử lý",
-    "so_dien_thoai": "Số điện thoại",
+    "nhan_vien_cskh": "Nhân viên CSKH",
     "thoi_diem_tao_don": "Thời điểm tạo đơn",
     "thoi_diem_cap_nhat_trang_thai": "Thời điểm cập nhật trạng thái",
     "thoi_diem_cap_nhat_da_nhan": "Thời điểm cập nhật sang đã nhận",
     "nguon_don": "Nguồn đơn",
-    "san_pham": "Sản phẩm",
     "ma_san_pham": "Mã sản phẩm",
     "ma_mau_ma": "Mã mẫu mã",
     "so_luong": "Số lượng",
@@ -58,7 +68,6 @@ COLUMN_MAP = {
     "doanh_thu_chua_tru_phi_san": "Doanh thu chưa trừ phí sàn",
     "doanh_thu_khong_tru_hoan": "Doanh thu không trừ hoàn",
     "doanh_thu_ban_hang": "Doanh thu bán hàng",
-    "kho_hang": "Kho hàng",  # sheet nguon khong co cot nay -> NULL
     "ad_id": "Ad ID",
 }
 
@@ -95,74 +104,3 @@ def fill_down(df):
     df, stripped = df[~junk].copy(), stripped[~junk]
 
     # fill theo cum don: dong con chi lay gia tri tu DONG DAU cua chinh don do,
-    # khong ffill tron de tranh keo nham gia tri cua don phia tren
-    header = ~stripped[FILL_COLS[0]].isin(PLACEHOLDERS)
-    if not header.iloc[0]:
-        raise SystemExit("Dong dau tien khong phai dong dau don - du lieu nguon bi xao tron, dung lai.")
-    grp = header.cumsum()
-    for col in FILL_COLS:
-        header_val = df[col].where(header).groupby(grp).transform("first")
-        is_ph = stripped[col].isin(PLACEHOLDERS)
-        df.loc[~header & is_ph, col] = header_val[~header & is_ph]
-    return df, int((~header).sum()), int(junk.sum())
-
-
-def to_bq_frame(df):
-    out = pd.DataFrame(index=df.index)
-    for bq_col, src in COLUMN_MAP.items():
-        if src in df.columns:
-            out[bq_col] = df[src].fillna("").str.strip().replace({"": None})
-        else:
-            out[bq_col] = None
-
-    for col in INT_COLS:
-        raw = out[col].str.replace(",", "", regex=False)
-        out[col] = pd.to_numeric(raw, errors="coerce").round().astype("Int64")
-
-    # gio Viet Nam, luu wall-clock (naive) de DATE(ts) trong BQ ra dung ngay VN
-    for col in TS_COLS:
-        out[col] = pd.to_datetime(out[col], errors="coerce", dayfirst=True)
-
-    if out["id"].isna().any():
-        raise SystemExit(f"{int(out['id'].isna().sum())} dong khong co ID sau khi fill - dung lai.")
-    return out
-
-
-def upsert_to_bigquery(out, cutoff):
-    creds = service_account.Credentials.from_service_account_file(KEY_FILE)
-    client = bigquery.Client(project=PROJECT_ID, credentials=creds)
-    schema = client.get_table(TABLE_FULL_ID).schema
-
-    client.query(
-        f"DELETE FROM `{TABLE_FULL_ID}` WHERE DATE(thoi_diem_tao_don) >= DATE('{cutoff}')"
-    ).result()
-
-    client.load_table_from_dataframe(
-        out, TABLE_FULL_ID,
-        job_config=bigquery.LoadJobConfig(schema=schema, write_disposition="WRITE_APPEND"),
-    ).result()
-    return client.get_table(TABLE_FULL_ID).num_rows
-
-
-def main():
-    cutoff = datetime.now(TZ).date() - timedelta(days=WINDOW_DAYS)
-    print(f"Cutoff (gio VN): {cutoff}")
-
-    df, title = load_dataframe()
-    print(f"Da doc {len(df)} dong tu sheet '{title}'")
-
-    df, filled, junk = fill_down(df)
-    print(f"Da fill {filled} dong con, bo {junk} dong trong")
-
-    out = to_bq_frame(df)
-    out = out[out["thoi_diem_tao_don"].dt.date >= cutoff]
-    if out.empty:
-        raise SystemExit(f"0 dong trong {WINDOW_DAYS} ngay gan nhat - nghi van sheet loi, khong dong vao BigQuery.")
-    print(f"Trong cua so {WINDOW_DAYS} ngay: {len(out)} dong / {out['id'].nunique()} don")
-
-    total = upsert_to_bigquery(out, cutoff)
-    print(f"BigQuery OK: bang {TABLE_FULL_ID} hien co {total} dong")
-
-
-if __name__ == "__main__":
-    main()
