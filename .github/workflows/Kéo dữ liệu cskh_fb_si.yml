@@ -30,5 +30,7 @@ jobs:
         run: echo "GOOGLE_APPLICATION_CREDENTIALS=google_key.json" >> $GITHUB_ENV
       
       - name: Run Python
-        run: python report_linh.py
+        run: |
+  python report_linh.py
+  python report_linhOA.py
           
