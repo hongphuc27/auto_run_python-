@@ -32,7 +32,7 @@ GID = 1370755167
 PROJECT_ID = "rhysman-data-warehouse-488306"
 TABLE_FULL_ID = f"{PROJECT_ID}.rhysman.fact_cskhzaloOA"
 
-WINDOW_DAYS = 
+WINDOW_DAYS = 40
 TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 
