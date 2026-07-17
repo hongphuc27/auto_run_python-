@@ -22,10 +22,10 @@ KEY_FILE = os.environ.get(
     "GOOGLE_APPLICATION_CREDENTIALS",
     r"E:\RYSH MAN\rhysman-data-warehouse-488306-8db2b940e56a.json",
 )
-SHEET_ID = "1MaIhb0FSi5cpZ0kX99dGPYem1ofH_tgqjfms5KBkKeQ"
-GID = 108803117
+SHEET_ID = "1lGXhLQffq_tcaHJbObhO1zzc-GnZWEeRY9dXN5FCMbw"
+GID = 2054414545
 PROJECT_ID = "rhysman-data-warehouse-488306"
-TABLE_FULL_ID = f"{PROJECT_ID}.rhysman.fact_fb_zalo_si"
+TABLE_FULL_ID = f"{PROJECT_ID}.rhysman.fact_cskhzaloOA"
 WINDOW_DAYS = 25
 TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
