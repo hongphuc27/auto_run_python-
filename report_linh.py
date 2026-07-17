@@ -26,7 +26,7 @@ SHEET_ID = "1MaIhb0FSi5cpZ0kX99dGPYem1ofH_tgqjfms5KBkKeQ"
 GID = 108803117
 PROJECT_ID = "rhysman-data-warehouse-488306"
 TABLE_FULL_ID = f"{PROJECT_ID}.rhysman.fact_fb_zalo_si"
-WINDOW_DAYS = 25
+WINDOW_DAYS = 35
 TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 FILL_COLS = ["ID", "Trạng thái", "Thời điểm tạo đơn", "Nhân viên CSKH"]
