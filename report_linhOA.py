@@ -23,7 +23,7 @@ KEY_FILE = os.environ.get(
     r"E:\RYSH MAN\rhysman-data-warehouse-488306-8db2b940e56a.json",
 )
 SHEET_ID = "1lGXhLQffq_tcaHJbObhO1zzc-GnZWEeRY9dXN5FCMbw"
-GID = 2054414545
+GID = 1370755167
 PROJECT_ID = "rhysman-data-warehouse-488306"
 TABLE_FULL_ID = f"{PROJECT_ID}.rhysman.fact_cskhzaloOA"
 WINDOW_DAYS = 35
