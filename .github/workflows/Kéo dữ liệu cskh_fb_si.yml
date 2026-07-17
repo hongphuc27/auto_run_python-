@@ -31,6 +31,6 @@ jobs:
       
       - name: Run Python
         run: |
-  python report_linh.py
-  python report_linhOA.py
+          python report_linh.py
+          python report_linhOA.py
           
