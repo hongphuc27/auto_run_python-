@@ -32,7 +32,7 @@ COOKIE_FILE   = os.getenv("COOKIE_FILE", "cookie.txt")  # đổi qua wrapper cho
 # Ưu tiên secret riêng theo shop (TIKTOK_COOKIE_RHYSMAN), fallback tên chung.
 # Thêm shop mới sau này: chỉ cần đặt ENV COOKIE_ENV_NAME=TIKTOK_COOKIE_<TENSHOP>.
 _COOKIE_ENV   = os.getenv("COOKIE_ENV_NAME", "TIKTOK_COOKIE_RHYSMAN")
-TIKTOK_COOKIE = os.getenv(_COOKIE_ENV) or os.getenv("TIKTOK_COOKIE")
+TIKTOK_COOKIE = os.getenv(_COOKIE_ENV) or os.getenv("TIKTOK_COOKIE_HAIR")
 
 SELLER_ID = None             # tự đọc từ cookie lúc chạy (oec_seller_id_unified_seller_env)
 
