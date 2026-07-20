@@ -14,21 +14,35 @@ VÍ DỤ:
 
 Mặc định nạp thẳng BigQuery rhysman.fact_tiktok_pay_settlement (idempotent: xoá đúng
 khoảng settlement_time rồi insert). Cần cookie.txt + openpyxl + google-cloud-bigquery.
+
+CHẠY TRÊN GITHUB ACTIONS — cấp qua biến môi trường, không cần file secret trong repo:
+  TIKTOK_COOKIE                = nguyên chuỗi cookie (1 dòng)
+  GOOGLE_SERVICE_ACCOUNT_JSON  = nội dung file service-account .json
+  (tùy chọn) BQ_DATASET / BQ_TABLE để trỏ bảng khác.
 An toàn: nếu TikTok đổi/thêm/bớt cột so với EXPECTED_HEADERS -> DỪNG báo lỗi.
 """
 import argparse, datetime, gzip, io, json, os, re, sys, time, urllib.parse, urllib.request
 
-# --- Cấu hình đọc từ biến môi trường, có fallback về giá trị local cũ ---
-# Chạy local: không set ENV -> hành vi y hệt trước.
-# Chạy GitHub Actions: set ENV -> không cần file secret trong repo.
-COOKIE_FILE = os.getenv("COOKIE_FILE", "cookie.txt")   # đổi qua wrapper cho từng shop
-TIKTOK_COOKIE = os.getenv("TIKTOK_COOKIE")             # nếu có -> dùng thẳng, bỏ qua file
+# ================== CẤU HÌNH (ưu tiên ENV, fallback về giá trị local cũ) ==================
+# Chạy LOCAL: không set ENV nào -> hành vi y hệt bản gốc (đọc cookie.txt + key ở ổ E:).
+# Chạy GITHUB ACTIONS: set ENV -> không cần file secret nằm trong repo.
+
+# --- Cookie TikTok Seller ---
+COOKIE_FILE   = os.getenv("COOKIE_FILE", "cookie.txt")  # đổi qua wrapper cho từng shop
+TIKTOK_COOKIE = os.getenv("TIKTOK_COOKIE")              # có giá trị -> dùng thẳng, bỏ qua file
+
 SELLER_ID = None             # tự đọc từ cookie lúc chạy (oec_seller_id_unified_seller_env)
 
-# BigQuery đích
-BQ_KEY = os.getenv("BQ_KEY", "E:/RYSH MAN/rhysman-data-warehouse-488306-8db2b940e56a.json")
-BQ_DATASET = os.getenv("BQ_DATASET", "rhysman")
-BQ_TABLE = os.getenv("BQ_TABLE", "fact_tiktok_pay_settlement")
+# --- BigQuery đích ---
+# 3 cách cấp credential, xét theo thứ tự ưu tiên:
+#   1) GOOGLE_SERVICE_ACCOUNT_JSON = NỘI DUNG chuỗi JSON  (dùng chung secret với keocptiktok.py)
+#   2) BQ_KEY / GOOGLE_APPLICATION_CREDENTIALS = ĐƯỜNG DẪN tới file .json
+#   3) không set gì -> dùng path mặc định ở máy anh
+BQ_KEY_JSON = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+BQ_KEY      = os.getenv("BQ_KEY") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS") \
+              or "E:/RYSH MAN/rhysman-data-warehouse-488306-8db2b940e56a.json"
+BQ_DATASET  = os.getenv("BQ_DATASET", "rhysman")
+BQ_TABLE    = os.getenv("BQ_TABLE", "fact_tiktok_pay_settlement")
 
 # ============================ ĐỊNH NGHĨA CỘT XUẤT RA ============================
 # Bảng 'Chi tiết đơn hàng' gốc 65 cột -> rút còn các cột dưới. Tiền là VND (số nguyên).
@@ -243,12 +257,27 @@ def write_records_xlsx(records, out_path):
 def slim_xlsx(src, out_path):      # tiện ích cũ: đọc + ghi xlsx
     write_records_xlsx(slim_records(src), out_path)
 
+def _bq_credentials():
+    """Dựng credential BigQuery. Ưu tiên chuỗi JSON trong ENV (hợp GitHub Actions),
+    fallback về file .json trên đĩa (hợp chạy local)."""
+    from google.oauth2 import service_account
+    if BQ_KEY_JSON:
+        try:
+            info = json.loads(BQ_KEY_JSON)
+        except json.JSONDecodeError as e:
+            sys.exit(f"[BQ] GOOGLE_SERVICE_ACCOUNT_JSON không phải JSON hợp lệ: {e}")
+        print("[BQ] credential: ENV GOOGLE_SERVICE_ACCOUNT_JSON", flush=True)
+        return service_account.Credentials.from_service_account_info(info)
+    if not os.path.exists(BQ_KEY):
+        sys.exit(f"[BQ] không thấy key file: {BQ_KEY} — và cũng không có ENV GOOGLE_SERVICE_ACCOUNT_JSON.")
+    print(f"[BQ] credential: file {BQ_KEY}", flush=True)
+    return service_account.Credentials.from_service_account_file(BQ_KEY)
+
 def load_to_bq(records, begin_date, end_date):
     """Nạp records vào {BQ_DATASET}.{BQ_TABLE}. Idempotent: xoá đúng khoảng
     settlement_time [begin_date, end_date] rồi insert lại."""
     from google.cloud import bigquery
-    from google.oauth2 import service_account
-    creds = service_account.Credentials.from_service_account_file(BQ_KEY)
+    creds = _bq_credentials()
     client = bigquery.Client(credentials=creds, project=creds.project_id)
     tbl = f"{creds.project_id}.{BQ_DATASET}.{BQ_TABLE}"
 
@@ -289,16 +318,14 @@ def main():
     a = ap.parse_args()
     global SELLER_ID
     if TIKTOK_COOKIE:
-        cookie = TIKTOK_COOKIE.strip()
-        cookie_src = "ENV:TIKTOK_COOKIE"
+        cookie, cookie_src = TIKTOK_COOKIE.strip(), "ENV:TIKTOK_COOKIE"
     else:
         if not os.path.exists(COOKIE_FILE):
-            sys.exit(f"[CONFIG] không thấy {COOKIE_FILE} và cũng không có ENV TIKTOK_COOKIE.")
-        cookie = open(COOKIE_FILE, encoding="utf-8").read().strip()
-        cookie_src = f"file:{COOKIE_FILE}"
+            sys.exit(f"[CONFIG] không thấy file {COOKIE_FILE}, và cũng không có ENV TIKTOK_COOKIE.")
+        cookie, cookie_src = open(COOKIE_FILE, encoding="utf-8").read().strip(), f"file:{COOKIE_FILE}"
     m = re.search(r"oec_seller_id_unified_seller_env=(\d+)", cookie)
     if not m:
-        sys.exit(f"[CONFIG] không thấy oec_seller_id trong cookie ({cookie_src}) — cookie sai/thiếu/hết hạn?")
+        sys.exit(f"[CONFIG] không thấy oec_seller_id trong cookie ({cookie_src}) — cookie sai/thiếu/HẾT HẠN?")
     SELLER_ID = m.group(1)
     print(f"[CONFIG] seller_id={SELLER_ID} | cookie={cookie_src}", flush=True)
 
