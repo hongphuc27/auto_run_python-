@@ -1,4 +1,4 @@
-name: Pay Settlement (RHYSMAN + HAIR)
+name: Kéo dữ liệu TikTok Pay Settlement (RHYSMAN + HAIR)
 
 on:
   schedule:
@@ -16,30 +16,16 @@ on:
         default: ""
 
 concurrency:
-  # Script DELETE rồi INSERT theo khoảng ngày -> 2 lần chạy chồng nhau sẽ đá nhau.
   group: tiktok-pay-settlement
   cancel-in-progress: false
 
 jobs:
-  run-settlement:
+
+  # ==================== JOB 1: SHOP RHYSMAN ====================
+  rhysman:
+    name: Settlement RHYSMAN
     runs-on: ubuntu-latest
     timeout-minutes: 25
-
-    strategy:
-      # fail-fast: false -> shop này lỗi (VD cookie hết hạn) thì shop kia VẪN chạy.
-      fail-fast: false
-      # max-parallel: 1 -> chạy TUẦN TỰ. Bắt buộc vì 2 shop ghi chung 1 bảng,
-      # script làm DELETE rồi INSERT; chạy song song có rủi ro đá nhau.
-      max-parallel: 1
-      matrix:
-        shop:
-          - name: RHYSMAN
-            cookie_env: TIKTOK_COOKIE_RHYSMAN
-          - name: HAIR
-            cookie_env: TIKTOK_COOKIE_HAIR
-
-    name: Settlement ${{ matrix.shop.name }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -55,13 +41,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install openpyxl google-cloud-bigquery google-auth
 
-      - name: Run TikTok Pay Settlement ETL — ${{ matrix.shop.name }}
+      - name: Run export_pay_settlement_rhysman.py
         env:
-          # Báo cho script biết đọc cookie ở biến nào.
-          COOKIE_ENV_NAME: ${{ matrix.shop.cookie_env }}
-          # Truyền cả 2 secret; script chỉ dùng đúng cái COOKIE_ENV_NAME trỏ tới.
+          COOKIE_ENV_NAME: TIKTOK_COOKIE_RHYSMAN
           TIKTOK_COOKIE_RHYSMAN: ${{ secrets.TIKTOK_COOKIE_RHYSMAN }}
-          TIKTOK_COOKIE_HAIR: ${{ secrets.TIKTOK_COOKIE_HAIR }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           BQ_DATASET: rhysman
           BQ_TABLE: fact_tiktok_pay_settlement
@@ -72,5 +55,47 @@ jobs:
               --month "${{ github.event.inputs.month }}" --wait 300
           else
             python -u export_pay_settlement_rhysman.py \
+              --last-days "${{ github.event.inputs.last_days || '2' }}" --wait 300
+          fi
+
+  # ==================== JOB 2: SHOP HAIR ====================
+  # needs: rhysman -> chờ RHYSMAN xong mới chạy. Tránh lỗi TikTok 22008001
+  #                   ("đang chuẩn bị tệp") do 2 export job chồng nhau.
+  # if: always()   -> RHYSMAN fail thì HAIR VẪN chạy.
+  hair:
+    name: Settlement HAIR
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: rhysman
+    if: always()
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install openpyxl google-cloud-bigquery google-auth
+
+      - name: Run export_pay_settlement_hair.py
+        env:
+          COOKIE_ENV_NAME: TIKTOK_COOKIE_HAIR
+          TIKTOK_COOKIE_HAIR: ${{ secrets.TIKTOK_COOKIE_HAIR }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          BQ_DATASET: rhysman
+          BQ_TABLE: fact_tiktok_pay_settlement
+          PYTHONIOENCODING: utf-8
+        run: |
+          if [ -n "${{ github.event.inputs.month }}" ]; then
+            python -u export_pay_settlement_hair.py \
+              --month "${{ github.event.inputs.month }}" --wait 300
+          else
+            python -u export_pay_settlement_hair.py \
               --last-days "${{ github.event.inputs.last_days || '2' }}" --wait 300
           fi
