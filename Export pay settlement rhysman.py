@@ -29,7 +29,7 @@ import argparse, datetime, gzip, io, json, os, re, sys, time, urllib.parse, urll
 
 # --- Cookie TikTok Seller ---
 COOKIE_FILE   = os.getenv("COOKIE_FILE", "cookie.txt")  # đổi qua wrapper cho từng shop
-TIKTOK_COOKIE = os.getenv("TIKTOK_COOKIE")              # có giá trị -> dùng thẳng, bỏ qua file
+TIKTOK_COOKIE = os.getenv("TIKTOK_COOKIE_RHYSMAN")              # có giá trị -> dùng thẳng, bỏ qua file
 
 SELLER_ID = None             # tự đọc từ cookie lúc chạy (oec_seller_id_unified_seller_env)
 
