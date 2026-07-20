@@ -1,4 +1,4 @@
-name: Kéo dữ liệu TikTok Pay Settlement (RHYSMAN + HAIR)
+name: Pay Settlement (RHYSMAN + HAIR)
 
 on:
   schedule:
