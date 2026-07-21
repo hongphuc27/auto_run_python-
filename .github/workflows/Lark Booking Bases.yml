@@ -51,7 +51,7 @@ jobs:
           LARK_APP_SECRET: ${{ secrets.LARK_APP_SECRET_BASE }}
           LARK_APP_TOKEN: ${{ secrets.LARK_BASE_APP_TOKEN }}
           LARK_TABLE_ID: ${{ secrets.LARK_BASE_TABLE_ID_VIDEO }}
-        run: python base_booking_video.py
+        run: python sync_booking_video.py
 
   booking-live:
     name: Booking Live to Google Sheets
@@ -92,4 +92,4 @@ jobs:
           LARK_APP_SECRET: ${{ secrets.LARK_APP_SECRET_BASE }}
           LARK_APP_TOKEN: ${{ secrets.LARK_BASE_APP_TOKEN }}
           LARK_TABLE_ID: ${{ secrets.LARK_BASE_TABLE_ID_LIVE }}
-        run: python base_booking_live.py
+        run: python sync_booking_live.py
