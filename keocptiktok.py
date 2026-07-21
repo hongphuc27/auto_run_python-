@@ -36,8 +36,8 @@ HEADERS = {
 # 2. DATE RANGE
 # =====================================================
 
-# today = datetime.today().date()
-today = datetime(2026, 7, 19).date()
+today = datetime.today().date()
+# today = datetime(2026, 7, 19).date()
 api_date = today.strftime("%Y-%m-%d")
 
 # =====================================================
