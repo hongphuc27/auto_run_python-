@@ -1,4 +1,4 @@
-name: TikTok Wallet - 2 Shops
+name: TikTok Wallet
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ on:
   schedule:
     # GitHub dùng UTC.
     # Tương ứng 08:00, 11:00, 14:00, 17:00, 21:00 giờ Việt Nam.
-    - cron: "0 1,4,7,10,14 * * *"
+    - cron: "0 8 * * *"
 
 permissions:
   contents: read
