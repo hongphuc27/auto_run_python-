@@ -33,7 +33,7 @@ jobs:
           LARK_APP_SECRET: ${{ secrets.LARK_APP_SECRET_KHO }}
           LARK_BASE_APP_TOKEN: ${{ secrets.LARK_BASE_APP_TOKEN_KHO }}
           LARK_BASE_TOKEN_ID: ${{ secrets.LARK_BASE_TOKEN_ID_KHOKN }}
-        run: python base_kho_khieu_nai.py
+        run: python sync_kho_khieu_nai.py
 
   cham-cong:
     name: Lark chấm công -> Google Sheet
@@ -62,7 +62,7 @@ jobs:
           LARK_APP_SECRET: ${{ secrets.LARK_APP_SECRET_KHO }}
           LARK_BASE_APP_TOKEN: ${{ secrets.LARK_BASE_APP_TOKEN_KHO }}
           LARK_BASE_TOKEN_ID: ${{ secrets.LARK_BASE_TOKEN_ID_KHOCC }}
-        run: python base_kho_cham_cong.py
+        run: python sync_kho_cham_cong.py
 
   don-chua-ban-giao:
     name: Nhanh đơn chưa bàn giao -> BigQuery
@@ -88,4 +88,4 @@ jobs:
         env:
           # Trỏ tới file key vừa ghi ra từ secret (code không hardcode đường dẫn key).
           BIGQUERY_KEY_PATH: bq_key.json
-        run: python nhanh_don_chua_ban_giao.py
+        run: python sync_kho_don_chua_ban_giao.py
