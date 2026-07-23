@@ -1,0 +1,91 @@
+name: Sync Kho (Lark + Nhanh)
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # mỗi giờ 1 lần (phút 0, giờ UTC)
+  workflow_dispatch:        # nút bấm chạy tay
+
+jobs:
+  khieu-nai:
+    name: Lark khiếu nại -> Google Sheet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cài thư viện
+        run: pip install gspread requests python-dotenv google-auth
+
+      - name: Ghi credentials từ secrets
+        env:
+          GCP_SA: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_BOOKING }}
+        run: |
+          if [ -z "$GCP_SA" ]; then echo "::error::Thiếu secret GOOGLE_APPLICATION_CREDENTIALS_BOOKING"; exit 1; fi
+          printf '%s' "$GCP_SA" > sa_sheets.json
+
+      - name: Chạy sync
+        env:
+          GCP_KEY_PATH: sa_sheets.json
+          LARK_APP_ID: ${{ secrets.LARK_APP_ID_KHO }}
+          LARK_APP_SECRET: ${{ secrets.LARK_APP_SECRET_KHO }}
+          LARK_BASE_APP_TOKEN: ${{ secrets.LARK_BASE_APP_TOKEN_KHO }}
+          LARK_BASE_TOKEN_ID: ${{ secrets.LARK_BASE_TOKEN_ID_KHOKN }}
+        run: python base_kho_khieu_nai.py
+
+  cham-cong:
+    name: Lark chấm công -> Google Sheet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cài thư viện
+        run: pip install gspread requests python-dotenv google-auth
+
+      - name: Ghi credentials từ secrets
+        env:
+          GCP_SA: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_BOOKING }}
+        run: |
+          if [ -z "$GCP_SA" ]; then echo "::error::Thiếu secret GOOGLE_APPLICATION_CREDENTIALS_BOOKING"; exit 1; fi
+          printf '%s' "$GCP_SA" > sa_sheets.json
+
+      - name: Chạy sync
+        env:
+          GCP_KEY_PATH: sa_sheets.json
+          LARK_APP_ID: ${{ secrets.LARK_APP_ID_KHO }}
+          LARK_APP_SECRET: ${{ secrets.LARK_APP_SECRET_KHO }}
+          LARK_BASE_APP_TOKEN: ${{ secrets.LARK_BASE_APP_TOKEN_KHO }}
+          LARK_BASE_TOKEN_ID: ${{ secrets.LARK_BASE_TOKEN_ID_KHOCC }}
+        run: python base_kho_cham_cong.py
+
+  don-chua-ban-giao:
+    name: Nhanh đơn chưa bàn giao -> BigQuery
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cài thư viện
+        run: pip install google-cloud-bigquery google-auth pandas openpyxl
+
+      - name: Ghi credentials từ secrets
+        env:
+          GCP_SA: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -z "$GCP_SA" ]; then echo "::error::Thiếu secret GOOGLE_SERVICE_ACCOUNT_JSON"; exit 1; fi
+          printf '%s' "$GCP_SA" > bq_key.json
+
+      - name: Chạy sync
+        env:
+          # Trỏ tới file key vừa ghi ra từ secret (code không hardcode đường dẫn key).
+          BIGQUERY_KEY_PATH: bq_key.json
+        run: python nhanh_don_chua_ban_giao.py
