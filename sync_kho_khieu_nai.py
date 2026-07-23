@@ -20,7 +20,7 @@ from google.oauth2 import service_account
 ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env.base.kho")
 LARK_HOST = "https://open.larksuite.com"
 
-GCP_KEY_PATH = r"E:\RYSH MAN\ursusneit-4de5c66ae2f8.json"
+GCP_KEY_PATH = os.getenv("GCP_KEY_PATH", r"E:\RYSH MAN\ursusneit-4de5c66ae2f8.json")
 SPREADSHEET_ID = "1Sxk10_TFJG9wn8oNvq02QiacIE0M9XU2b9yryyeR43I"
 WORKSHEET_NAME = "Sheet4"
 
