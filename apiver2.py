@@ -37,7 +37,7 @@ bq_client = bigquery.Client(project=PROJECT_ID)
 # API CONFIG
 # ======================================================
 BASE_URL = "https://pancake.vn/api/v1/statistics/customer_engagements"
-ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiTMOqIEjhu5NuZyBQaMO6YyIsImV4cCI6MTc4NDc5MzA1MiwiYXBwbGljYXRpb24iOjEsInVpZCI6ImM5ZDFjNzM5LWIyNWItNGYxMy1hZmIyLTE0ZjcxYjdhYTFjMSIsInNlc3Npb25faWQiOiJhZDhiYzVlNy1iZTI1LTQ4OGQtYjhlNS1lNzVhNDcwMDYyNGQiLCJpYXQiOjE3NzcwMTcwNTIsImZiX2lkIjoiMzA0MTg2NzkwNDA3OTk4IiwibG9naW5fc2Vzc2lvbiI6bnVsbCwiZmJfbmFtZSI6IkzDqiBI4buTbmcgUGjDumMifQ.7b-7O7GOBa4Oi1TEvQzufrMHmI3dkI_t2Nj55O6S8eI"
+ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiTMOqIEjhu5NuZyBQaMO6YyIsImV4cCI6MTc5MTY5MjY3NiwiYXBwbGljYXRpb24iOjEsInVpZCI6ImM5ZDFjNzM5LWIyNWItNGYxMy1hZmIyLTE0ZjcxYjdhYTFjMSIsInNlc3Npb25faWQiOiJjMjExYmZhNy0xYTNlLTRmNmUtYjA5YS03YjE3ZGZkZGU2NTgiLCJpYXQiOjE3ODM5MTY2NzYsInBhbmNha2VfaWQiOiJkODQ1ZWYyYS1iZjdlLTQzODgtYTdlMS1jMDYzYmIxZjc2OGUiLCJmYl9pZCI6IjMwNDE4Njc5MDQwNzk5OCIsImxvZ2luX3Nlc3Npb24iOm51bGwsImZiX25hbWUiOiJMw6ogSOG7k25nIFBow7pjIn0.lPD5P9ALr3LRbh-PMvE9Ckpck75OQx-3yGPSpSnMf38"
 PAGE_IDS = [
   "483749328145950",
   "265906426604834",
@@ -75,7 +75,7 @@ PAGE_IDS = [
 # END_DATE = TODAY
 
 END_DATE = datetime.now().strftime("%Y-%m-%d")
-START_DATE = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+START_DATE = (datetime.now() - timedelta(days=13)).strftime("%Y-%m-%d")
 
 
 # ======================================================
