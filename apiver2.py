@@ -75,7 +75,7 @@ PAGE_IDS = [
 # END_DATE = TODAY
 
 END_DATE = datetime.now().strftime("%Y-%m-%d")
-START_DATE = (datetime.now() - timedelta(days=13)).strftime("%Y-%m-%d")
+START_DATE = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
 
 
 # ======================================================
