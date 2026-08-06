@@ -371,10 +371,20 @@ VÍ DỤ:
   py -X utf8 keo_creator_daily.py --from 2026-06-29 --to 2026-07-31   # backfill
   py -X utf8 keo_creator_daily.py --last-days 2 --cookie cookie_shop2.txt
 
-Idempotent: DELETE đúng (id_shop x creator_username x khoảng create_time) rồi INSERT.
-Chạy lại bao nhiêu lần cũng không nhân đôi.
+Idempotent: load vào bảng staging, rồi DELETE (id_shop x creator_username x khoảng
+create_time) + INSERT trong MỘT transaction. Chạy lại bao nhiêu lần cũng không nhân đôi,
+và load hỏng thì bảng thật không bị thủng. Service account cần quyền tạo/xoá bảng trong
+dataset (roles/bigquery.dataEditor là đủ).
+
+create_time ghi xuống BigQuery là UTC (không tzinfo) — đúng quy ước sẵn có của bảng,
+đã đối chiếu phân bố giờ của dữ liệu cũ ngày 06/08/2026. Đừng đổi sang giờ VN.
+
+Kéo thiếu là hỏng dữ liệu chứ không phải chạy chậm: vì nap_bq xoá cả khoảng ngày rồi ghi
+lại, script sẽ DỪNG HẲN (không đụng BigQuery) nếu chạm trần MAX_PAGES mà TikTok còn báo
+dữ liệu, hoặc nếu số đơn lấy được ít hơn total_count TikTok tự báo. Chỉ dùng
+--skip-total-check khi đã kiểm tay và biết chắc total_count của TikTok sai.
 """
-import argparse, datetime, json, os, re, sys, time, urllib.parse
+import argparse, datetime, json, os, re, sys, time, urllib.parse, uuid
 
 # ---------------------------------------------------------------- cấu hình
 BASE = "https://seller-vn.tiktok.com"
@@ -399,7 +409,12 @@ CREATORS = {
 SALE_SOURCE_TO_POSITION = {"1": 3, "2": 2, "3": 1}
 SALE_SOURCE_TEN = {"1": "LIVE", "2": "Video", "3": "Thẻ sản phẩm"}
 
-RE_HOA_HONG = re.compile(r"hoa hồng:\s*(\S+)")
+# Chỉ nhận đúng item "Người nhận hoa hồng: <handle>". Regex lỏng r"hoa hồng:" nuốt luôn
+# "Tỷ lệ hoa hồng: 20%" -> rác lọt vào cảnh báo "creator ngoài danh sách", làm hỏng đúng
+# cái cảnh báo dùng để biết khi nào phải thêm tên vào CREATORS. Giữ RE_LONG để đếm và
+# log số item bị loại, phòng khi TikTok đổi câu chữ thì thấy ngay.
+RE_NGUOI_NHAN = re.compile(r"người nhận hoa hồng\s*:\s*(\S+)", re.IGNORECASE)
+RE_LONG = re.compile(r"hoa hồng\s*:\s*(\S+)", re.IGNORECASE)
 PAGE_SIZE = 100
 MAX_PAGES = 400
 BROWSER_RESTARTS = 3
@@ -636,13 +651,18 @@ class TikTokBrowserClient:
                 if result.get("error"):
                     raise BrowserRestartRequired(result["error"])
                 status = result.get("status")
-                if status == 401:
-                    sys.exit("[COOKIE] Browser nhận HTTP 401. Hãy cập nhật cookie rồi chạy lại.")
+                if status in (401, 403):
+                    sys.exit(f"[COOKIE] Browser nhận HTTP {status} — cookie hết hạn hoặc bị "
+                             "risk-control chặn. Lấy cookie mới rồi chạy lại. "
+                             "(Dựng lại browser cũng không cứu được, nên dừng luôn.)")
                 if status != 200:
                     raise BrowserRestartRequired(f"HTTP status {status}")
                 js = result.get("data") or {}
                 code = js.get("code")
                 if str(code) == "0":
+                    # Ngân sách restart là cho một CHUỖI lỗi liên tiếp, không phải cho cả run:
+                    # backfill vài trăm trang dính 3 lỗi vặt cách xa nhau vẫn phải chạy tiếp.
+                    self.restart_count = 0
                     return js
                 if str(code) in ("98001002", "98001008"):
                     sys.exit(f"[COOKIE] TikTok trả code {code}: {js.get('message')}. "
@@ -659,7 +679,7 @@ class TikTokBrowserClient:
 
 
 # ---------------------------------------------------------------- kéo dữ liệu
-def keo_mot_kenh(client, seller_id, sale_source, t0, t1):
+def keo_mot_kenh(client, seller_id, sale_source, t0, t1, kiem_tra_total=True):
     """Trả list (main_order_id, create_time_epoch, creator_username) cho 1 kênh."""
     url = API + "?" + urllib.parse.urlencode(common_params(seller_id))
     cond = {
@@ -668,39 +688,71 @@ def keo_mot_kenh(client, seller_id, sale_source, t0, t1):
         "sale_source": {"value": [sale_source]},
     }
     out, cursor, pages, total = [], "", 0, None
+    so_don, bo_qua, lech_regex, con_tiep = 0, 0, 0, False
     while pages < MAX_PAGES:
         body = {"count": PAGE_SIZE, "offset": 0, "pagination_type": 1, "sort_info": "6",
                 "search_cursor": cursor, "search_condition": {"condition_list": cond}}
         js = client.post(url, body, f"sale_source={sale_source}, trang {pages + 1}")
-        d = js["data"]
-        total = d.get("total_count")
+        d = js.get("data") or {}
+        if total is None:                      # lấy ở trang đầu: đơn mới về giữa chừng
+            total = d.get("total_count")       # không được làm mốc kiểm tra nhảy số
         orders = d.get("main_orders") or []
         if not orders:
             break
+        so_don += len(orders)
         for o in orders:
-            oid = o.get("main_order_id")
-            t = (o.get("trade_order_module") or {}).get("create_time")
+            try:
+                oid = int(o.get("main_order_id"))
+                t = int((o.get("trade_order_module") or {}).get("create_time"))
+            except (TypeError, ValueError):
+                bo_qua += 1                    # thiếu field -> bỏ đơn, đừng để crash cả run
+                continue
             seen = set()
             for sku in (o.get("sku_module") or []):
                 for it in ((sku.get("creator_info_name") or {}).get("items") or []):
-                    m = RE_HOA_HONG.search(it.get("message_content") or "")
+                    msg = it.get("message_content") or ""
+                    m = RE_NGUOI_NHAN.search(msg)
                     if m:
                         seen.add(m.group(1))
+                    elif RE_LONG.search(msg):
+                        lech_regex += 1
             for c in seen:
-                out.append((oid, int(t), c))
+                out.append((oid, t, c))
         cursor = d.get("search_next_cursor") or ""
         pages += 1
-        if not d.get("search_next_has_more") or not cursor:
+        con_tiep = bool(d.get("search_next_has_more")) and bool(cursor)
+        if not con_tiep:
             break
+
     log(f"  sale_source={sale_source} ({SALE_SOURCE_TEN[sale_source]}): "
-        f"total_count={total}, {pages} trang, {len(out)} cặp đơn-creator")
+        f"total_count={total}, {pages} trang, {so_don} đơn, {len(out)} cặp đơn-creator")
+    if bo_qua:
+        log(f"    ! bỏ {bo_qua} đơn thiếu main_order_id hoặc create_time")
+    if lech_regex:
+        log(f"    ({lech_regex} item có 'hoa hồng:' nhưng không phải 'Người nhận hoa hồng:' "
+            f"— đã bỏ qua)")
+
+    # Hai guard dưới đây phải là sys.exit chứ không phải log: nap_bq sẽ DELETE nguyên
+    # khoảng ngày rồi INSERT lại, nên kéo thiếu mà chạy tiếp là mất dữ liệu thật.
+    if con_tiep:
+        sys.exit(f"[PHÂN TRANG] sale_source={sale_source} chạm trần MAX_PAGES={MAX_PAGES} "
+                 f"mà TikTok vẫn báo còn dữ liệu. DỪNG, không đụng BigQuery. "
+                 f"Hãy chia nhỏ khoảng --from/--to hoặc tăng MAX_PAGES.")
+    try:
+        total_int = int(total)
+    except (TypeError, ValueError):
+        total_int = None
+    if kiem_tra_total and total_int is not None and so_don < total_int:
+        sys.exit(f"[PHÂN TRANG] sale_source={sale_source}: TikTok báo total_count={total_int} "
+                 f"nhưng chỉ lấy được {so_don} đơn. DỪNG, không đụng BigQuery. "
+                 f"Nếu chắc chắn total_count của TikTok sai thì chạy lại với --skip-total-check.")
     return out
 
 
-def keo(client, seller_id, t0, t1):
+def keo(client, seller_id, t0, t1, kiem_tra_total=True):
     rows, la = {}, set()
     for ss in ("1", "2", "3"):
-        for oid, t, cu in keo_mot_kenh(client, seller_id, ss, t0, t1):
+        for oid, t, cu in keo_mot_kenh(client, seller_id, ss, t0, t1, kiem_tra_total):
             if cu not in CREATORS:
                 la.add(cu)
                 continue
@@ -712,7 +764,7 @@ def keo(client, seller_id, t0, t1):
                         f"({rows[key]['promotion_position_type']} và {pos}) — giữ kênh đầu")
                 continue
             rows[key] = {
-                "main_order_id": int(oid),
+                "main_order_id": oid,
                 "creator_nickname": CREATORS[cu],
                 "creator_username": cu,
                 "promotion_position_type": pos,
@@ -755,10 +807,44 @@ def bq_client():
     return bigquery.Client(project=BQ_PROJECT)
 
 
+def _dml_theo_cau_lenh(client, script_job):
+    """Số dòng DELETE/INSERT của từng câu trong script. Thiếu quyền jobs.list thì thôi."""
+    try:
+        ra = {}
+        for child in client.list_jobs(parent_job=script_job.job_id):
+            if child.num_dml_affected_rows is not None:
+                ra[child.statement_type] = child.num_dml_affected_rows
+        return ra
+    except Exception:
+        return {}
+
+
 def nap_bq(rows, seller_id, utc0, utc1):
+    """Nạp qua bảng staging rồi DELETE + INSERT trong MỘT transaction.
+
+    Cách cũ (DELETE thẳng rồi mới load) mà load hỏng là thủng nguyên khoảng ngày trong
+    bảng thật — daily thì chạy lại là xong, nhưng backfill 1 tháng thì mất 1 tháng dữ
+    liệu cho tới lần chạy sau. Staging cũng bắt luôn lỗi lệch kiểu vì nó load theo đúng
+    schema bảng đích thay vì để BigQuery tự đoán.
+    """
     from google.cloud import bigquery
     client = bq_client()
     table_id = f"{BQ_PROJECT}.{BQ_DATASET}.{BQ_TABLE}"
+    bang_dich = client.get_table(table_id)
+
+    cot_bang = {f.name for f in bang_dich.schema}
+    thieu = [c for c in rows[0] if c not in cot_bang]
+    if thieu:
+        sys.exit(f"[BQ] các cột {thieu} không tồn tại trong {table_id}.")
+    cot = ", ".join(f"`{c}`" for c in rows[0])
+
+    stg_id = f"{BQ_PROJECT}.{BQ_DATASET}.{BQ_TABLE}__stg_{uuid.uuid4().hex[:12]}"
+    job = client.load_table_from_json(
+        rows, stg_id,
+        job_config=bigquery.LoadJobConfig(
+            schema=bang_dich.schema, write_disposition="WRITE_TRUNCATE"))
+    job.result()
+    log(f"  staging {stg_id.split('.')[-1]}: {len(rows)} dòng")
 
     cfg = bigquery.QueryJobConfig(query_parameters=[
         bigquery.ScalarQueryParameter("shop", "STRING", seller_id),
@@ -767,22 +853,22 @@ def nap_bq(rows, seller_id, utc0, utc1):
         bigquery.ScalarQueryParameter("t1", "DATETIME", utc1),
     ])
     sql = f"""
+        BEGIN TRANSACTION;
         DELETE FROM `{table_id}`
         WHERE id_shop = @shop
           AND creator_username IN UNNEST(@creators)
-          AND create_time >= @t0 AND create_time <= @t1
+          AND create_time >= @t0 AND create_time <= @t1;
+        INSERT INTO `{table_id}` ({cot}) SELECT {cot} FROM `{stg_id}`;
+        COMMIT TRANSACTION;
     """
-    job = client.query(sql, job_config=cfg)
-    job.result()
-    log(f"  DELETE xong: {job.num_dml_affected_rows} dòng cũ")
-
-    job = client.load_table_from_json(
-        rows, table_id,
-        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_APPEND"))
-    job.result()
-    if job.errors:
-        sys.exit(f"[BQ] lỗi nạp: {job.errors}")
-    log(f"  INSERT xong: {len(rows)} dòng -> {table_id}")
+    try:
+        job = client.query(sql, job_config=cfg)
+        job.result()
+    finally:
+        client.delete_table(stg_id, not_found_ok=True)
+    dml = _dml_theo_cau_lenh(client, job)
+    log(f"  DELETE {dml.get('DELETE', '?')} dòng cũ + INSERT {dml.get('INSERT', len(rows))} "
+        f"dòng mới, cùng 1 transaction -> {table_id}")
 
 
 # ---------------------------------------------------------------- main
@@ -801,6 +887,9 @@ def main():
     ap.add_argument("--no-bq", action="store_true", help="không đụng BigQuery")
     ap.add_argument("--min-rows", type=int, default=1,
                     help="ít hơn số này thì DỪNG, không xoá gì (chống wipe)")
+    ap.add_argument("--skip-total-check", action="store_true",
+                    help="bỏ đối chiếu số đơn lấy được với total_count của TikTok "
+                         "(chỉ dùng khi biết chắc total_count của TikTok sai)")
     ap.add_argument("--browser-restarts", type=int, default=BROWSER_RESTARTS,
                     help="số lần đập và dựng lại toàn bộ Chromium khi browser lỗi "
                          f"(mặc định {BROWSER_RESTARTS})")
@@ -815,13 +904,15 @@ def main():
     if a.d_from or a.d_to:
         if not (a.d_from and a.d_to):
             sys.exit("--from và --to phải đi cùng nhau.")
+        if a.date or a.last_days is not None:
+            sys.exit("--from/--to không dùng chung với --date hoặc --last-days.")
         d0 = datetime.date.fromisoformat(a.d_from)
         d1 = datetime.date.fromisoformat(a.d_to)
     elif a.date:
         d0 = d1 = datetime.date.fromisoformat(a.date)
     else:
         d1 = datetime.datetime.now(TZ).date()
-        d0 = d1 - datetime.timedelta(days=a.last_days - 1)
+        d0 = d1 - datetime.timedelta(days=(2 if a.last_days is None else a.last_days) - 1)
     if d0 > d1:
         sys.exit("Khoảng ngày không hợp lệ.")
 
@@ -850,7 +941,7 @@ def main():
             a.browser_restart_wait,
         )
         try:
-            rows = keo(client, seller_id, t0, t1)
+            rows = keo(client, seller_id, t0, t1, not a.skip_total_check)
         finally:
             client.close()
     log(f"TỔNG: {len(rows)} dòng, {len({r['main_order_id'] for r in rows})} đơn")
@@ -883,5 +974,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
