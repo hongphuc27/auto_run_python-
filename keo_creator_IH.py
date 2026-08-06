@@ -268,7 +268,7 @@ def main():
     ap = argparse.ArgumentParser(description="Kéo người nhận hoa hồng TikTok -> BigQuery")
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--date", help="một ngày YYYY-MM-DD (giờ VN)")
-    g.add_argument("--last-days", type=int, default=2,
+    g.add_argument("--last-days", type=int, default=41,
                    help="N ngày gần nhất tính cả hôm nay (mặc định 2)")
     ap.add_argument("--from", dest="d_from", help="từ ngày YYYY-MM-DD")
     ap.add_argument("--to", dest="d_to", help="đến ngày YYYY-MM-DD")
