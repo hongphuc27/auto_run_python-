@@ -344,6 +344,8 @@
 
 
 
+
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -366,7 +368,7 @@ NGUỒN DỮ LIỆU (quan trọng, đừng đổi sang file export):
       sale_source 3 = Thẻ sản phẩm  -> promotion_position_type 1
 
 VÍ DỤ:
-  py -X utf8 keo_creator_daily.py --last-days 2
+  py -X utf8 keo_creator_daily.py                     # 41 ngày gần nhất (LAST_DAYS_MAC_DINH)
   py -X utf8 keo_creator_daily.py --date 2026-08-05 --no-bq --csv out.csv
   py -X utf8 keo_creator_daily.py --from 2026-06-29 --to 2026-07-31   # backfill
   py -X utf8 keo_creator_daily.py --last-days 2 --cookie cookie_shop2.txt
@@ -396,6 +398,12 @@ TZ = datetime.timezone(datetime.timedelta(hours=7))
 BQ_PROJECT = "rhysman-data-warehouse-488306"
 BQ_DATASET = "rhysman"
 BQ_TABLE = "fact_creator_tiktok"
+
+# Số ngày kéo khi không truyền --date/--from/--to. Đổi số ngày mặc định thì sửa ĐÚNG ở
+# đây (và ${LAST_DAYS:-41} trong .github/workflows/creator-daily.yml cho lịch chạy tự
+# động). Mỗi run xoá và ghi lại trọn cửa sổ này, nên tăng lên là tăng cả thời gian chạy
+# lẫn số partition BigQuery bị viết lại mỗi lần.
+LAST_DAYS_MAC_DINH = 41
 
 # Chỉ nạp các creator biết chắc nickname. API chỉ trả username, không trả nickname —
 # thêm tên mới thì phải bổ sung ở đây, nếu không sẽ bị bỏ qua (có cảnh báo).
@@ -876,8 +884,8 @@ def main():
     ap = argparse.ArgumentParser(description="Kéo người nhận hoa hồng TikTok -> BigQuery")
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--date", help="một ngày YYYY-MM-DD (giờ VN)")
-    g.add_argument("--last-days", type=int, default=41,
-                   help="N ngày gần nhất tính cả hôm nay (mặc định 2)")
+    g.add_argument("--last-days", type=int, default=None,
+                   help=f"N ngày gần nhất tính cả hôm nay (mặc định {LAST_DAYS_MAC_DINH})")
     ap.add_argument("--from", dest="d_from", help="từ ngày YYYY-MM-DD")
     ap.add_argument("--to", dest="d_to", help="đến ngày YYYY-MM-DD")
     ap.add_argument("--cookie", default=COOKIE,
@@ -912,7 +920,8 @@ def main():
         d0 = d1 = datetime.date.fromisoformat(a.date)
     else:
         d1 = datetime.datetime.now(TZ).date()
-        d0 = d1 - datetime.timedelta(days=(2 if a.last_days is None else a.last_days) - 1)
+        so_ngay = LAST_DAYS_MAC_DINH if a.last_days is None else a.last_days
+        d0 = d1 - datetime.timedelta(days=so_ngay - 1)
     if d0 > d1:
         sys.exit("Khoảng ngày không hợp lệ.")
 
