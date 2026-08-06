@@ -35,9 +35,7 @@ jobs:
   keo:
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    defaults:
-      run:
-        working-directory: github-actions/tiktok-creator-daily
+    # KHÔNG đặt working-directory: keo_creator_IH.py nằm ở gốc repo auto_run_python-.
     steps:
       - uses: actions/checkout@v4
 
