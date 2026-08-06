@@ -344,8 +344,6 @@
 
 
 
-
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -376,7 +374,7 @@ VÍ DỤ:
 Idempotent: DELETE đúng (id_shop x creator_username x khoảng create_time) rồi INSERT.
 Chạy lại bao nhiêu lần cũng không nhân đôi.
 """
-import argparse, datetime, json, os, re, sys, time, urllib.parse, urllib.request, urllib.error
+import argparse, datetime, json, os, re, sys, time, urllib.parse
 
 # ---------------------------------------------------------------- cấu hình
 BASE = "https://seller-vn.tiktok.com"
@@ -404,8 +402,11 @@ SALE_SOURCE_TEN = {"1": "LIVE", "2": "Video", "3": "Thẻ sản phẩm"}
 RE_HOA_HONG = re.compile(r"hoa hồng:\s*(\S+)")
 PAGE_SIZE = 100
 MAX_PAGES = 400
-CHALLENGE_RETRIES = 3
-CHALLENGE_WAIT_SECONDS = 30
+BROWSER_RESTARTS = 3
+BROWSER_RESTART_WAIT_SECONDS = 5
+PAGE_TIMEOUT_MS = 90_000
+JS_FETCH_TIMEOUT_MS = 90_000
+BROWSER_SETTLE_MS = 4_000
 
 
 def log(*a):
@@ -426,7 +427,7 @@ def seller_id_tu_cookie(cookie):
 
 
 class CookieState:
-    """Giữ cookie hiện tại và có thể nạp lại nguồn cookie khi đổi phiên."""
+    """Giữ cookie gốc để inject lại mỗi lần dựng browser mới."""
 
     def __init__(self, cookie, seller_id, source_kind, path=None):
         self.cookie = cookie
@@ -489,87 +490,172 @@ def common_params(seller_id):
     }
 
 
-class TikTokChallenge(RuntimeError):
+class BrowserRestartRequired(RuntimeError):
     pass
 
 
-def post(url, cookie, body, tries=6, opener=None):
-    """Gọi API, retry khi lỗi mạng. Cookie chết thì dừng hẳn, retry vô nghĩa."""
-    data = json.dumps(body).encode()
-    headers = {
-        "content-type": "application/json",
-        "accept": "*/*",
-        "cookie": cookie,
-        "origin": BASE,
-        "referer": BASE + "/order",
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
-        "x-tt-oec-region": "VN",
+FETCH_IN_PAGE = """
+async ({url, body, timeoutMs}) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await fetch(url, {
+            method: "POST",
+            headers: {
+                "content-type": "application/json",
+                "accept": "application/json, text/plain, */*",
+                "x-tt-oec-region": "VN"
+            },
+            body: JSON.stringify(body),
+            credentials: "include",
+            signal: controller.signal
+        });
+        const responseText = await response.text();
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch (error) {
+            return {
+                status: response.status,
+                error: `response không phải JSON: ${responseText.slice(0, 500)}`
+            };
+        }
+        return {status: response.status, data};
+    } catch (error) {
+        return {error: error instanceof Error ? error.message : String(error)};
+    } finally {
+        clearTimeout(timeoutId);
     }
-    open_request = opener.open if opener else urllib.request.urlopen
-    for k in range(tries):
-        try:
-            req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-            with open_request(req, timeout=90) as r:
-                js = json.loads(r.read())
-            code = js.get("code")
-            if str(code) == "0":
-                return js
-            if str(code) in ("98001002", "98001008"):
-                sys.exit(f"[COOKIE] TikTok trả code {code}: {js.get('message')}. "
-                         f"Cookie đã hết hạn — lấy cookie mới rồi chạy lại.")
-            if str(code) == "10000":
-                raise TikTokChallenge(js.get("message") or "TikTok yêu cầu xác minh phiên")
-            if k == tries - 1:
-                sys.exit(f"[API] code={code} message={js.get('message')}")
-        except TikTokChallenge:
-            raise
-        except SystemExit:
-            raise
-        except Exception as e:
-            if k == tries - 1:
-                raise
-            log(f"    retry {k+1} ({e})")
-        time.sleep(2 * (k + 1))
+}
+"""
 
 
-class TikTokClient:
-    """Retry nguyên request trên transport mới khi phiên bị challenge."""
+class TikTokBrowserClient:
+    """Gọi API trong page và thay toàn bộ Chromium khi browser/context hỏng."""
 
-    def __init__(self, cookie_state, challenge_retries=CHALLENGE_RETRIES,
-                 challenge_wait=CHALLENGE_WAIT_SECONDS):
+    def __init__(self, playwright, cookie_state, browser_restarts=BROWSER_RESTARTS,
+                 browser_restart_wait=BROWSER_RESTART_WAIT_SECONDS):
+        self.playwright = playwright
         self.cookie_state = cookie_state
-        self.challenge_retries = challenge_retries
-        self.challenge_wait = challenge_wait
-        self.challenge_count = 0
-        self.session_number = 1
-        self.opener = urllib.request.build_opener()
+        self.browser_restarts = browser_restarts
+        self.browser_restart_wait = browser_restart_wait
+        self.restart_count = 0
+        self.browser_number = 0
+        self.browser = None
+        self.context = None
+        self.page = None
+
+    def _playwright_cookies(self):
+        cookies = []
+        for part in self.cookie_state.cookie.split(";"):
+            part = part.strip()
+            if "=" not in part:
+                continue
+            name, _, value = part.partition("=")
+            cookies.append({"name": name.strip(), "value": value.strip(), "url": BASE})
+        return cookies
+
+    def _destroy_browser(self):
+        context, browser = self.context, self.browser
+        self.page = None
+        self.context = None
+        self.browser = None
+        if context is not None:
+            try:
+                context.close()
+            except Exception:
+                pass
+        if browser is not None:
+            try:
+                browser.close()
+            except Exception:
+                pass
+
+    def _launch_browser(self):
+        self.browser_number += 1
+        log(f"    launch Chromium process #{self.browser_number}")
+        self.browser = self.playwright.chromium.launch(headless=True)
+        self.context = self.browser.new_context(
+            viewport={"width": 1440, "height": 960},
+            locale="vi-VN",
+            timezone_id="Asia/Ho_Chi_Minh",
+        )
+        cookies = self._playwright_cookies()
+        self.context.add_cookies(cookies)
+        self.page = self.context.new_page()
+        self.page.set_default_timeout(PAGE_TIMEOUT_MS)
+        self.page.goto(BASE + "/order", wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+        self.page.wait_for_timeout(BROWSER_SETTLE_MS)
+        current_url = self.page.url.lower()
+        if "login" in current_url or "passport" in current_url:
+            sys.exit(f"[COOKIE] Browser bị chuyển sang trang đăng nhập: {self.page.url}. "
+                     "Hãy cập nhật cookie rồi chạy lại.")
+        if "verify" in current_url or "captcha" in current_url:
+            raise BrowserRestartRequired(f"browser mở vào trang xác minh: {self.page.url}")
+        log(f"    Chromium #{self.browser_number} sẵn sàng: {self.page.url}")
+
+    def _restart_browser(self, page_description, error):
+        self._destroy_browser()
+        if self.restart_count >= self.browser_restarts:
+            sys.exit(
+                f"[BROWSER] Đã đập và dựng lại Chromium {self.browser_restarts} lần tại "
+                f"{page_description} nhưng vẫn lỗi: {error}. Cursor chưa bị tăng và BigQuery "
+                "chưa bị thay đổi."
+            )
+        self.restart_count += 1
+        log(f"  ! browser lỗi tại {page_description}: {error}")
+        log(f"    đập toàn bộ browser; giữ checkpoint cursor của page hiện tại "
+            f"({self.restart_count}/{self.browser_restarts})")
+        if self.browser_restart_wait:
+            time.sleep(self.browser_restart_wait)
+        cookie_changed = self.cookie_state.reload_if_changed()
+        if cookie_changed:
+            log("    đã nạp cookie mới trước khi dựng Chromium")
+
+    def _ensure_browser(self, page_description):
+        while self.page is None:
+            try:
+                self._launch_browser()
+            except SystemExit:
+                self._destroy_browser()
+                raise
+            except Exception as error:
+                self._restart_browser(page_description, error)
+
+    def close(self):
+        self._destroy_browser()
 
     def post(self, url, body, page_description):
         while True:
+            self._ensure_browser(page_description)
             try:
-                return post(url, self.cookie_state.cookie, body, opener=self.opener)
-            except TikTokChallenge as error:
-                if self.challenge_count >= self.challenge_retries:
-                    sys.exit(
-                        f"[CHALLENGE] Vẫn bị yêu cầu xác minh tại {page_description} sau "
-                        f"{self.challenge_retries} lần tạo phiên mới. Cursor chưa bị tăng và "
-                        "BigQuery chưa bị thay đổi. Hãy xác minh Seller Center, cập nhật cookie "
-                        "rồi chạy lại."
+                result = self.page.evaluate(
+                    FETCH_IN_PAGE,
+                    {"url": url, "body": body, "timeoutMs": JS_FETCH_TIMEOUT_MS},
+                )
+                if result.get("error"):
+                    raise BrowserRestartRequired(result["error"])
+                status = result.get("status")
+                if status == 401:
+                    sys.exit("[COOKIE] Browser nhận HTTP 401. Hãy cập nhật cookie rồi chạy lại.")
+                if status != 200:
+                    raise BrowserRestartRequired(f"HTTP status {status}")
+                js = result.get("data") or {}
+                code = js.get("code")
+                if str(code) == "0":
+                    return js
+                if str(code) in ("98001002", "98001008"):
+                    sys.exit(f"[COOKIE] TikTok trả code {code}: {js.get('message')}. "
+                             "Cookie đã hết hạn — lấy cookie mới rồi chạy lại.")
+                if str(code) == "10000":
+                    raise BrowserRestartRequired(
+                        js.get("message") or "TikTok yêu cầu xác minh browser"
                     )
-
-                self.challenge_count += 1
-                log(f"  ! challenge tại {page_description}: {error}")
-                log("    giữ nguyên cursor; sẽ retry đúng page này trên phiên mới")
-                if self.challenge_wait:
-                    log(f"    chờ {self.challenge_wait}s để phiên cũ hạ nhiệt/cookie được cập nhật")
-                    time.sleep(self.challenge_wait)
-
-                cookie_changed = self.cookie_state.reload_if_changed()
-                self.opener = urllib.request.build_opener()
-                self.session_number += 1
-                cookie_status = "đã nạp cookie mới" if cookie_changed else "giữ cookie hiện tại"
-                log(f"    phiên HTTP #{self.session_number}: {cookie_status}")
+                raise BrowserRestartRequired(f"API code={code}: {js.get('message')}")
+            except SystemExit:
+                raise
+            except Exception as error:
+                self._restart_browser(page_description, error)
 
 
 # ---------------------------------------------------------------- kéo dữ liệu
@@ -715,16 +801,16 @@ def main():
     ap.add_argument("--no-bq", action="store_true", help="không đụng BigQuery")
     ap.add_argument("--min-rows", type=int, default=1,
                     help="ít hơn số này thì DỪNG, không xoá gì (chống wipe)")
-    ap.add_argument("--challenge-retries", type=int, default=CHALLENGE_RETRIES,
-                    help="số lần tạo phiên HTTP mới và retry đúng page khi gặp challenge "
-                         f"(mặc định {CHALLENGE_RETRIES})")
-    ap.add_argument("--challenge-wait", type=int, default=CHALLENGE_WAIT_SECONDS,
-                    help="số giây chờ trước mỗi lần đổi phiên "
-                         f"(mặc định {CHALLENGE_WAIT_SECONDS})")
+    ap.add_argument("--browser-restarts", type=int, default=BROWSER_RESTARTS,
+                    help="số lần đập và dựng lại toàn bộ Chromium khi browser lỗi "
+                         f"(mặc định {BROWSER_RESTARTS})")
+    ap.add_argument("--browser-restart-wait", type=int, default=BROWSER_RESTART_WAIT_SECONDS,
+                    help="số giây chờ trước khi launch Chromium mới "
+                         f"(mặc định {BROWSER_RESTART_WAIT_SECONDS})")
     a = ap.parse_args()
 
-    if a.challenge_retries < 0 or a.challenge_wait < 0:
-        sys.exit("--challenge-retries và --challenge-wait không được âm.")
+    if a.browser_restarts < 0 or a.browser_restart_wait < 0:
+        sys.exit("--browser-restarts và --browser-restart-wait không được âm.")
 
     if a.d_from or a.d_to:
         if not (a.d_from and a.d_to):
@@ -741,7 +827,6 @@ def main():
 
     cookie_state = doc_cookie(a.cookie)
     seller_id = cookie_state.seller_id
-    client = TikTokClient(cookie_state, a.challenge_retries, a.challenge_wait)
     start = datetime.datetime.combine(d0, datetime.time(0, 0, 0), TZ)
     end = datetime.datetime.combine(d1, datetime.time(23, 59, 59), TZ)
     t0, t1 = int(start.timestamp()), int(end.timestamp())
@@ -751,7 +836,23 @@ def main():
     log(f"shop {seller_id} | {d0} -> {d1} (giờ VN)")
     log(f"khoảng create_time UTC sẽ ghi đè: {utc0} -> {utc1}")
 
-    rows = keo(client, seller_id, t0, t1)
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        sys.exit("[PLAYWRIGHT] Chưa cài Playwright. Chạy: pip install playwright && "
+                 "python -m playwright install chromium")
+
+    with sync_playwright() as playwright:
+        client = TikTokBrowserClient(
+            playwright,
+            cookie_state,
+            a.browser_restarts,
+            a.browser_restart_wait,
+        )
+        try:
+            rows = keo(client, seller_id, t0, t1)
+        finally:
+            client.close()
     log(f"TỔNG: {len(rows)} dòng, {len({r['main_order_id'] for r in rows})} đơn")
     for cu in CREATORS:
         sub = [r for r in rows if r["creator_username"] == cu]
@@ -782,3 +883,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
