@@ -1,45 +1,80 @@
-name: Kéo dữ liệu Creator_IH
+name: TikTok Creator Sync
 
 on:
   schedule:
-    - cron: "*/59 * * * *"
+    # Mỗi 2 giờ. Giờ UTC -> giờ VN cộng 7: 07:00, 09:00, 11:00 ... 05:00 sáng hôm sau.
+    # DELETE+INSERT theo đúng khoảng ngày nên chạy chồng lên nhau không nhân đôi.
+    # LƯU Ý: mỗi run kéo 41 ngày (~200 trang API, 10-20 phút) và ghi lại 41 partition.
+    # 12 run/ngày = 12 lần viết lại trọn 41 ngày. Muốn nhẹ hơn thì giãn cron ra.
+    - cron: "0 */2 * * *"
   workflow_dispatch:
+    inputs:
+      last_days:
+        description: "Kéo N ngày gần nhất (tính cả hôm nay)"
+        required: false
+        default: "41"
+      date_from:
+        description: "Backfill từ ngày YYYY-MM-DD (đi kèm date_to)"
+        required: false
+      date_to:
+        description: "Backfill đến ngày YYYY-MM-DD"
+        required: false
+      skip_total_check:
+        description: "Bỏ đối chiếu total_count của TikTok (chỉ khi biết chắc TikTok báo sai)"
+        required: false
+        type: boolean
+        default: false
+
+# Backfill dài chạy đè lên cron 2 tiếng sẽ có 2 run cùng DELETE+INSERT một khoảng ngày.
+# Transaction bên BigQuery sẽ huỷ một cái, nhưng xếp hàng ở đây thì sạch hơn.
+concurrency:
+  group: tiktok-creator-sync
+  cancel-in-progress: false
 
 jobs:
-  run-etl:
+  keo:
     runs-on: ubuntu-latest
-
-    env:
-      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-      TIKTOK_COOKIE: ${{ secrets.TIKTOK_COOKIE_RHYSMAN }}
-
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: github-actions/tiktok-creator-daily
     steps:
-      # 1️⃣ Clone repository
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # 2️⃣ Setup Python
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
-      # 3️⃣ Install Python dependencies and Chromium
-      - name: Install dependencies
+      # Playwright gọi API từ bên trong Seller Center page và có thể dựng lại
+      # toàn bộ Chromium tại đúng cursor đang dở.
+      - name: Cài thư viện
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install pandas requests google-cloud-bigquery google-auth pyarrow playwright==1.49.0
+          pip install --quiet google-cloud-bigquery playwright==1.49.0
           python -m playwright install --with-deps chromium
 
-      # 4️⃣ Verify Playwright
-      - name: Verify Playwright
+      - name: Kiểm tra secrets
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          TIKTOK_COOKIE: ${{ secrets.TIKTOK_COOKIE_RHYSMAN }}
         run: |
-          python -c "from playwright.sync_api import sync_playwright; print('Playwright import OK')"
+          if [ -z "$GOOGLE_SERVICE_ACCOUNT_JSON" ]; then echo "::error::Thiếu secret GOOGLE_SERVICE_ACCOUNT_JSON"; exit 1; fi
+          if [ -z "$TIKTOK_COOKIE" ]; then echo "::error::Thiếu secret TIKTOK_COOKIE_RHYSMAN"; exit 1; fi
 
-      # 5️⃣ Run Creator TikTok ETL
-      - name: Run Creator TikTok ETL
-        run: python keo_creator_IH.py
-
-      # 6️⃣ Run Doitac TikTok ETL
-      # - name: Run Doitac TikTok ETL
-      #   run: python keo_doitaclk_bigquery.py
+      # Cả cookie lẫn service account đều truyền thẳng qua biến môi trường,
+      # KHÔNG ghi ra file. Đổi credentials = sửa mỗi secret, không đụng code.
+      - name: Kéo dữ liệu creator
+        env:
+          TIKTOK_COOKIE: ${{ secrets.TIKTOK_COOKIE_RHYSMAN }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          LAST_DAYS: ${{ github.event.inputs.last_days }}
+          DATE_FROM: ${{ github.event.inputs.date_from }}
+          DATE_TO: ${{ github.event.inputs.date_to }}
+          SKIP_TOTAL: ${{ github.event.inputs.skip_total_check }}
+        run: |
+          FLAGS=""
+          if [ "$SKIP_TOTAL" = "true" ]; then FLAGS="--skip-total-check"; fi
+          if [ -n "$DATE_FROM" ] && [ -n "$DATE_TO" ]; then
+            python keo_creator_daily.py --from "$DATE_FROM" --to "$DATE_TO" $FLAGS
+          else
+            python keo_creator_daily.py --last-days "${LAST_DAYS:-41}" $FLAGS
+          fi
