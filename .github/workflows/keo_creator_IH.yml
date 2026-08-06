@@ -74,7 +74,7 @@ jobs:
           FLAGS=""
           if [ "$SKIP_TOTAL" = "true" ]; then FLAGS="--skip-total-check"; fi
           if [ -n "$DATE_FROM" ] && [ -n "$DATE_TO" ]; then
-            python keo_creator_daily.py --from "$DATE_FROM" --to "$DATE_TO" $FLAGS
+            python keo_creator_IH.py --from "$DATE_FROM" --to "$DATE_TO" $FLAGS
           else
-            python keo_creator_daily.py --last-days "${LAST_DAYS:-41}" $FLAGS
+            python keo_creator_IH.py --last-days "${LAST_DAYS:-41}" $FLAGS
           fi
