@@ -183,14 +183,17 @@ def keo(cookie, seller_id, t0, t1):
                 la.add(cu)
                 continue
             key = (oid, cu)
-            if key in rows and rows[key]["pos"] != SALE_SOURCE_TO_POSITION[ss]:
-                log(f"  ! đơn {oid} creator {cu} xuất hiện ở 2 kênh — giữ kênh đầu")
+            pos = SALE_SOURCE_TO_POSITION[ss]
+            if key in rows:
+                if rows[key]["promotion_position_type"] != pos:
+                    log(f"  ! đơn {oid} creator {cu} xuất hiện ở 2 kênh "
+                        f"({rows[key]['promotion_position_type']} và {pos}) — giữ kênh đầu")
                 continue
             rows[key] = {
                 "main_order_id": int(oid),
                 "creator_nickname": CREATORS[cu],
                 "creator_username": cu,
-                "promotion_position_type": SALE_SOURCE_TO_POSITION[ss],
+                "promotion_position_type": pos,
                 "create_time": datetime.datetime.fromtimestamp(
                     t, datetime.timezone.utc).replace(tzinfo=None).isoformat(sep=" "),
                 "cos_ratio": None,
