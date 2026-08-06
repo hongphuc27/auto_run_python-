@@ -1,0 +1,37 @@
+name: Kéo dữ liệu Creator_IH
+
+on:
+  schedule:
+    - cron: "*/59 * * * *"   # chạy mỗi 59 phút
+  workflow_dispatch:
+
+jobs:
+  run-etl:
+    runs-on: ubuntu-latest
+    env:
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      TIKTOK_COOKIE: ${{ secrets.TIKTOK_COOKIE_RHYSMAN }}
+    steps:
+      # 1️⃣ Clone repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2️⃣ Setup Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 3️⃣ Install dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas requests google-cloud-bigquery google-auth pyarrow
+
+      # 4️⃣ Run Creator TikTok ETL
+      - name: Run Creator TikTok ETL
+        run: python keo_creator_IH.py
+
+      # # 5️⃣ Run Doitac TikTok ETL
+      # - name: Run Doitac TikTok ETL
+      #   run: python keo_doitaclk_bigquery.py
