@@ -45,7 +45,8 @@ name: Kéo dữ liệu Creator
 
 on:
   schedule:
-    - cron: "*/59 * * * *"   # chạy mỗi 59 phút
+    # - cron: "*/59 * * * *"   # chạy mỗi 59 phút
+     - cron: "0 */2 * * *"
   workflow_dispatch:
 
 jobs:
