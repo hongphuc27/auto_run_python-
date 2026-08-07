@@ -377,6 +377,13 @@ PAGE_SIZE = 50
 # Số ngày kéo về (giống bản cũ)
 DAYS_BACK = 31
 
+# Các creator không được xóa dữ liệu cũ
+PROTECTED_CREATORS = {
+    "rhysman.com",
+    "rhysman.shopping",
+    "rhysman_channel",
+}
+
 # cos_ratio/standard_cos_ratio trả về dạng "13%". Để False -> lưu số 13.
 # Đổi True nếu bảng cũ đang lưu dạng phân số 0.13.
 RATIO_AS_FRACTION = False
@@ -624,29 +631,161 @@ def run():
 
     df = df.dropna(subset=["main_order_id"])
 
+
+
+
     table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
 
-    # ==============================
-    # DELETE 31 NGÀY GẦN NHẤT (GIỮ NGUYÊN LOGIC CŨ)
-    # ==============================
+    # Chuẩn hóa creator_username để so sánh
+    df["_creator_username_norm"] = (
+        df["creator_username"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+    
+    protected_creator_sql = ", ".join(
+        f"'{username}'" for username in sorted(PROTECTED_CREATORS)
+    )
+    
+    # =====================================================
+    # KIỂM TRA CÁC ĐƠN PROTECTED CREATOR ĐÃ CÓ TRONG BIGQUERY
+    # =====================================================
+    existing_protected_query = f"""
+    SELECT DISTINCT
+        CAST(main_order_id AS STRING) AS main_order_id
+    FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}`
+    WHERE id_shop = '{ID_SHOP}'
+      AND DATE(create_time) >= DATE_SUB(
+            CURRENT_DATE("Asia/Ho_Chi_Minh"),
+            INTERVAL {DAYS_BACK} DAY
+          )
+      AND LOWER(TRIM(creator_username)) IN ({protected_creator_sql})
+    """
+    
+    existing_protected_rows = client.query(existing_protected_query).result()
+    
+    existing_protected_order_ids = {
+        str(row.main_order_id)
+        for row in existing_protected_rows
+        if row.main_order_id is not None
+    }
+    
+    # Các dòng thuộc 3 creator được bảo vệ
+    protected_mask = df["_creator_username_norm"].isin(PROTECTED_CREATORS)
+    
+    # Chỉ loại khỏi DataFrame những đơn protected đã tồn tại
+    duplicate_protected_mask = (
+        protected_mask
+        & df["main_order_id"].astype(str).isin(existing_protected_order_ids)
+    )
+    
+    duplicate_protected_count = int(duplicate_protected_mask.sum())
+    
+    if duplicate_protected_count > 0:
+        print(
+            f"Giữ nguyên {duplicate_protected_count} dòng của protected creators "
+            "đã có trong BigQuery, không insert lại."
+        )
+    
+    df = df.loc[~duplicate_protected_mask].copy()
+    df = df.drop(columns=["_creator_username_norm"])
+    
+    
+    # =====================================================
+    # DELETE 31 NGÀY GẦN NHẤT
+    # KHÔNG XÓA 3 CREATOR ĐƯỢC BẢO VỆ
+    # =====================================================
     delete_query = f"""
     DELETE FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}`
-    WHERE id_shop = '{ID_SHOP}' AND DATE(create_time) >= DATE_SUB(CURRENT_DATE("Asia/Ho_Chi_Minh"), INTERVAL {DAYS_BACK} DAY)
+    WHERE id_shop = '{ID_SHOP}'
+      AND DATE(create_time) >= DATE_SUB(
+            CURRENT_DATE("Asia/Ho_Chi_Minh"),
+            INTERVAL {DAYS_BACK} DAY
+          )
+      AND COALESCE(LOWER(TRIM(creator_username)), '') NOT IN (
+            {protected_creator_sql}
+          )
     """
+    
     client.query(delete_query).result()
-    print(f"Old data (last {DAYS_BACK} days) deleted.")
-
-    # ==============================
-    job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
-    job = client.load_table_from_dataframe(df, table_ref, job_config=job_config)
+    
+    print(
+        f"Đã xóa dữ liệu {DAYS_BACK} ngày gần nhất, "
+        f"ngoại trừ các creator: {', '.join(sorted(PROTECTED_CREATORS))}"
+    )
+    
+    
+    # =====================================================
+    # LOAD DỮ LIỆU
+    # =====================================================
+    if df.empty:
+        print("Không có dữ liệu mới để insert.")
+        return
+    
+    job_config = bigquery.LoadJobConfig(
+        write_disposition="WRITE_APPEND"
+    )
+    
+    job = client.load_table_from_dataframe(
+        df,
+        table_ref,
+        job_config=job_config
+    )
+    
     job.result()
-
+    
     print(f"✅ Loaded {len(df)} rows into BigQuery")
 
 
-# =====================================================
-if __name__ == "__main__":
-    run()
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#     table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
+
+#     # ==============================
+#     # DELETE 31 NGÀY GẦN NHẤT (GIỮ NGUYÊN LOGIC CŨ)
+#     # ==============================
+#     delete_query = f"""
+#     DELETE FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}`
+#     WHERE id_shop = '{ID_SHOP}' AND DATE(create_time) >= DATE_SUB(CURRENT_DATE("Asia/Ho_Chi_Minh"), INTERVAL {DAYS_BACK} DAY)
+#     """
+#     client.query(delete_query).result()
+#     print(f"Old data (last {DAYS_BACK} days) deleted.")
+
+#     # ==============================
+#     job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
+#     job = client.load_table_from_dataframe(df, table_ref, job_config=job_config)
+#     job.result()
+
+#     print(f"✅ Loaded {len(df)} rows into BigQuery")
+
+
+# # =====================================================
+# if __name__ == "__main__":
+#     run()
+
 
 
 
