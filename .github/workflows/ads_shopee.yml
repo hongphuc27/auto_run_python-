@@ -1,4 +1,4 @@
-name: Ads Shopee 
+name: Ads Shopee (nhanh.vn) -> BigQuery
 
 on:
   schedule:
@@ -92,8 +92,8 @@ jobs:
           ARGS=(--days "${IN_DAYS:-3}")
           if [ -n "$IN_END_DATE" ]; then ARGS+=(--end-date "$IN_END_DATE"); fi
           if [ "$IN_DRY_RUN" = "true" ]; then ARGS+=(--dry-run); fi
-          echo "==> python nhanh_ads_shopee.py ${ARGS[*]}"
-          python nhanh_ads_shopee.py "${ARGS[@]}"
+          echo "==> python keo_ads_shopee.py ${ARGS[*]}"
+          python keo_ads_shopee.py "${ARGS[@]}"
 
       - name: Xoa key khoi runner
         if: always()
