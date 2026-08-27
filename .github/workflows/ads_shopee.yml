@@ -1,127 +1,49 @@
-name: Ads Shopee (nhanh.vn) -> BigQuery
+name: Kéo chi phí ads Shopee
 
 on:
   schedule:
-    # Cron cua GitHub chay theo UTC, VN = UTC+7.
-    # Gio LE cua UTC = gio CHAN cua VN:
-    #   01h UTC = 08h VN | 03h = 10h | 05h = 12h | 07h = 14h | 09h = 16h | 11h = 18h
-    #   13h UTC = 20h VN | 15h = 22h | 17h = 00h | 19h = 02h | 21h = 04h | 23h = 06h
-    # => chay 2 tieng 1 lan, dung vao cac gio chan gio VN.
+    # Cron của GitHub chạy theo UTC, VN = UTC+7 → giờ LẺ của UTC = giờ CHẴN của VN.
+    # Chạy 2 tiếng/lần: 00h, 02h, 04h ... 22h giờ VN.
     - cron: "0 1-23/2 * * *"
-
   workflow_dispatch:
-    inputs:
-      days:
-        description: "So ngay keo lui (tinh ca ngay cuoi). Mac dinh 3"
-        required: false
-        default: "3"
-      end_date:
-        description: "Ngay cuoi YYYY-MM-DD. Bo trong = hom nay (gio VN)"
-        required: false
-      dry_run:
-        description: "Chi so sanh, KHONG ghi BigQuery"
-        type: boolean
-        default: false
 
 permissions:
   contents: read
 
-# Script xoa-roi-nap-lai mot khoang ngay. Hai run chong nhau se dam nhau,
-# nen xep hang chu khong chay song song.
+# Script xoá-rồi-nạp-lại một khoảng ngày. Hai run chồng nhau sẽ đâm nhau,
+# nên xếp hàng chứ không chạy song song.
 concurrency:
-  group: nhanh-ads-shopee
+  group: keo-ads-shopee
   cancel-in-progress: false
 
 jobs:
-  sync:
-    name: sync ads shopee
+  run-etl:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      # 1️⃣ Clone repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2️⃣ Setup Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
-      # db-dtypes: to_dataframe() tren cot DATE cua BQ, thieu la raise
-      # pyarrow  : load_table_from_dataframe()
-      # tzdata   : ZoneInfo("Asia/Ho_Chi_Minh")
-      - name: Cai thu vien
-        run: pip install --quiet requests pandas pyarrow db-dtypes tzdata google-cloud-bigquery
+      # 3️⃣ Install dependencies
+      #    db-dtypes: BẮT BUỘC — to_dataframe() của BigQuery thiếu nó là raise
+      #    pyarrow  : cho load_table_from_dataframe()
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas requests google-cloud-bigquery google-auth pyarrow db-dtypes
 
-      - name: Kiem tra va ghi credentials tu secrets
+      # 4️⃣ Kéo chi phí ads Shopee từ nhanh.vn → BigQuery
+      - name: Run Cost Ads Shopee ETL
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           NHANH_COOKIE: ${{ secrets.NHANH_COOKIE }}
-        run: |
-          if [ -z "$GOOGLE_SERVICE_ACCOUNT_JSON" ]; then
-            echo "::error::Thieu secret GOOGLE_SERVICE_ACCOUNT_JSON"; exit 1
-          fi
-          if [ -z "$NHANH_COOKIE" ]; then
-            echo "::error::Thieu secret NHANH_COOKIE"; exit 1
-          fi
-          # Cookie thieu csrf token thi co goi nhanh.vn cung vo ich - chan tu day
-          # cho thong bao ro rang, khoi phai doc log sau.
-          case "$NHANH_COOKIE" in
-            *Npos-Csrf-Token-V1=*) ;;
-            *) echo "::error::NHANH_COOKIE khong chua Npos-Csrf-Token-V1 - dan thieu hoac sai. Lay lai cookie tu DevTools."; exit 1 ;;
-          esac
-
-          # Ghi key ra RUNNER_TEMP, KHONG ghi vao thu muc repo,
-          # de khong bao gio lot vao artifact hay commit.
-          printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/sa_key.json"
-          python -c "import json,os; json.load(open(os.environ['RUNNER_TEMP']+'/sa_key.json'))" \
-            || { echo "::error::GOOGLE_SERVICE_ACCOUNT_JSON khong phai JSON hop le - paste nguyen file .json cua service account"; exit 1; }
-          echo "OK - credentials san sang."
-
-      - name: Chay sync
-        env:
-          NHANH_COOKIE: ${{ secrets.NHANH_COOKIE }}
-          NHANH_BUSINESS_ID: "224108"
-          BIGQUERY_PROJECT_ID: rhysman-data-warehouse-488306
-          BIGQUERY_KEY_PATH: ${{ runner.temp }}/sa_key.json
-          PYTHONUNBUFFERED: "1"
-          # Nhan tu workflow_dispatch. Truyen qua env chu khong noi thang vao
-          # dong lenh, tranh chen lenh shell.
-          IN_DAYS: ${{ inputs.days }}
-          IN_END_DATE: ${{ inputs.end_date }}
-          IN_DRY_RUN: ${{ inputs.dry_run }}
-        run: |
-          ARGS=(--days "${IN_DAYS:-3}")
-          if [ -n "$IN_END_DATE" ]; then ARGS+=(--end-date "$IN_END_DATE"); fi
-          if [ "$IN_DRY_RUN" = "true" ]; then ARGS+=(--dry-run); fi
-          echo "==> python keo_ads_shopee.py ${ARGS[*]}"
-          python keo_ads_shopee.py "${ARGS[@]}"
-
-      - name: Xoa key khoi runner
-        if: always()
-        run: rm -f "$RUNNER_TEMP/sa_key.json"
-
-      # Tuy chon. Chua khai secret LARK_WEBHOOK thi buoc nay tu bo qua.
-      # Co cai nay vi cookie nhanh.vn se het han - job im lang chet ma
-      # khong ai biet la rui ro lon nhat cua lich chay tu dong nay.
-      - name: Bao loi ve Lark
-        if: failure()
-        env:
-          LARK_WEBHOOK: ${{ secrets.LARK_WEBHOOK }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          if [ -z "$LARK_WEBHOOK" ]; then
-            echo "Chua khai secret LARK_WEBHOOK - bo qua buoc bao loi."
-            exit 0
-          fi
-          export TEXT="[LOI] Sync ads Shopee (nhanh.vn) -> BigQuery that bai.
-          Nguyen nhan hay gap nhat: NHANH_COOKIE het han, can cap nhat lai secret.
-          Log: $RUN_URL"
-          # Dung heredoc + file trung gian thay vi nhet python vao trong dau nhay
-          # cua curl - it cho de vo quote hon.
-          python - > "$RUNNER_TEMP/lark.json" <<'PY'
-          import json, os
-          print(json.dumps({"msg_type": "text",
-                            "content": {"text": os.environ["TEXT"]}}))
-          PY
-          curl -sS -X POST "$LARK_WEBHOOK" \
-            -H 'Content-Type: application/json' \
-            -d @"$RUNNER_TEMP/lark.json"
+        run: python keo_ads_shopee.py --days 3
