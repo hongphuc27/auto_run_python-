@@ -46,4 +46,7 @@ jobs:
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           NHANH_COOKIE: ${{ secrets.NHANH_COOKIE }}
+          # Không có dòng này thì stdout bị đệm, log in ra lộn xộn:
+          # dòng lỗi (stderr) nhảy lên trước cả banner.
+          PYTHONUNBUFFERED: "1"
         run: python keo_ads_shopee.py --days 3
