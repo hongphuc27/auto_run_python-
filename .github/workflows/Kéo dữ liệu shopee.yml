@@ -46,7 +46,7 @@ on:
   schedule:
     # Cron của GitHub chạy theo UTC, VN = UTC+7 → giờ LẺ của UTC = giờ CHẴN của VN.
     # Chạy 2 tiếng/lần: 00h, 02h, 04h ... 22h giờ VN.
-    - cron: "0 1-23/2 * * *"
+    - cron: "0 */3 * * *"
   workflow_dispatch:
 
 permissions:
