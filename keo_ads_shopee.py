@@ -54,11 +54,24 @@ def load_dotenv() -> None:
             os.environ.setdefault(k.strip(), v.strip().strip("\"'"))
 
 
+# Cookie phiên đăng nhập nhanh.vn, để thẳng trong code cho khỏi phải khai secret.
+# ĐỔI CHỖ NÀY KHI COOKIE HẾT HẠN, rồi commit lại.
+# Lấy lại: đăng nhập nhanh.vn > F12 > Network > bấm 1 request bất kỳ sang nhanh.vn
+#          > Request Headers > copy toàn bộ giá trị header "cookie".
+# Bắt buộc phải chứa Npos-Csrf-Token-V1=...
+COOKIE_MAC_DINH = "_ga=GA1.1.657311034.1780478512; _gcl_au=1.1.100242684.1780478512; _tt_enable_cookie=1; _ttp=01KT6CM33ZZCSVNM1DHRR88N6V_.tt.1; _fbp=fb.1.1780478512657.37388055819271719; posUIver=v3; nvnKn0x6mr3=5icdefk2gv20t8h72b8cl82gr1; Npos-Csrf-Token-V1=XERv53ZlZx2AV6s8zARKWLfR2RGJ9cBizMDv93rl9hhHi8AmbRP0NqLxaLhF2xlEztoOmxQL6yiVjCw2zdaNHpj2U5ukHpJRzHBxU4eukAPL1nSTF3paiCjWysEIMpjFhTrIfxyNU4B4G6O6iUfhn9x7ya1Oobd5XJmIY0q6F17EHulRUCeHXyD70ug2OhqfDm2e0IzZ7DGH1Y; isSignin=1; _ga_V1DEQFVWF2=GS2.1.s1782301117$o3$g0$t1782301117$j60$l0$h0; ttcsid_CAV5POJC77U5NQUHH8NG=1786189300032::KYn5HErjQ5MlQLcPoSrM.65.1786189328150.0; ttcsid=1786189300033::pA1RIiC5mrBni_bbsw5N.65.1786189328151.0::0.27218.28118::1398.2.307.399::0.0.0; _ga_5SRHFYM711=GS2.1.s1786189299$o117$g1$t1786191450$j60$l0$h674799338"
+
+
 def read_cookie() -> str:
-    cookie = (os.getenv("NHANH_COOKIE") or "").strip()
+    """Biến môi trường thắng, không có mới dùng chuỗi hardcode ở trên.
+
+    Để sau này muốn chuyển sang GitHub Secrets thì chỉ cần khai secret
+    NHANH_COOKIE, không phải sửa code.
+    """
+    cookie = (os.getenv("NHANH_COOKIE") or "").strip() or COOKIE_MAC_DINH.strip()
     if not cookie:
-        fail("Thiếu NHANH_COOKIE. Máy cá nhân: khai trong .env. "
-             "Cloud Run: gắn secret vào biến môi trường này.")
+        fail("Không có cookie. Sửa COOKIE_MAC_DINH trong file này, "
+             "hoặc khai biến môi trường NHANH_COOKIE.")
     return cookie
 
 
