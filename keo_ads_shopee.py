@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import calendar
+import json
 import os
 import re
 import sys
@@ -151,9 +152,23 @@ def pull(cookie: str, a: date, b: date) -> pd.DataFrame:
 
 def bq_client() -> bigquery.Client:
     project = os.getenv("BIGQUERY_PROJECT_ID", TABLE.split(".")[0])
+
+    # GitHub Actions: nội dung file .json nằm thẳng trong biến môi trường,
+    # không có file nào trên đĩa để mà trỏ tới.
+    raw = (os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON") or "").strip()
+    if raw:
+        try:
+            info = json.loads(raw)
+        except json.JSONDecodeError as e:
+            fail(f"GOOGLE_SERVICE_ACCOUNT_JSON không phải JSON hợp lệ: {e}. "
+                 "Secret phải là nguyên nội dung file service account, cả dấu { }.")
+        return bigquery.Client.from_service_account_info(info, project=project)
+
+    # Máy cá nhân: trỏ tới đường dẫn file .json
     key = os.getenv("BIGQUERY_KEY_PATH")
     if key and Path(key).exists():
         return bigquery.Client.from_service_account_json(key, project=project)
+
     return bigquery.Client(project=project)     # Cloud Run: service account gắn sẵn
 
 
