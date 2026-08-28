@@ -12,7 +12,7 @@ on:
       last_days:
         description: "Kéo N ngày gần nhất (tính cả hôm nay)"
         required: false
-        default: "41"
+        default: "25"
       date_from:
         description: "Backfill từ ngày YYYY-MM-DD (đi kèm date_to)"
         required: false
