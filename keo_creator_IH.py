@@ -637,61 +637,95 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-BẢN THÍ NGHIỆM — KHÔNG PHẢI BẢN PRODUCTION.
+TikTok Seller — NGƯỜI NHẬN HOA HỒNG theo đơn, nạp BigQuery fact_creator_tiktok.
 
-Đây là bản vá của github-actions/tiktok-creator-daily/keo_creator_daily.py, để trong
-_lab/ cho tới khi test xong. Bản prod KHÔNG bị sửa.
+Vì sao có script này: job affiliate cũ ngừng ghi nhận 3 tài khoản nhà (rhysman.com,
+rhysman.shopping, rhysman_channel) từ 29/06/2026, trong khi TikTok VẪN trả dữ liệu.
+Script này lấy thẳng từ API danh sách đơn của Seller Center.
 
-VÌ SAO CÓ BẢN NÀY
-  Bản prod treo cứng ~2 tiếng rồi bị GitHub Actions cancel. Chỗ treo là page.evaluate():
-  Playwright KHÔNG có timeout cho evaluate và set_default_timeout() không áp vào nó, nên
-  khi renderer bị nghẽn (overlay CAPTCHA, vòng redirect, main thread bận) thì lời gọi
-  chờ vô hạn. AbortController 90s bên trong JS cũng vô dụng vì setTimeout của nó cũng
-  nằm trên đúng cái main thread đang nghẽn.
+NGUỒN DỮ LIỆU (quan trọng, đừng đổi sang file export):
+  Người nhận hoa hồng nằm ở  main_orders[].sku_module[].creator_info_name.items[]
+  phần tử position=3 -> "Người nhận hoa hồng: <handle>".
+  Cột "Creator Handle" trong file export .xlsx KHÔNG phải trường này — nó để trống
+  cho toàn bộ đơn Thẻ sản phẩm, thiếu ~27% dữ liệu. Đã kiểm chứng 06/08/2026.
 
-  Job live cũ (cloud-run-jobs/tiktok-live-rhysman-job/keo_datalive_rhysman.py:565) đã
-  làm đúng từ đầu:
-      result = await asyncio.wait_for(page.evaluate(js_code), timeout=PAGE_EVAL_TIMEOUT)
-  Bản creator viết lại theo sync API nên đánh rơi lớp bảo vệ này. Bản vá ở đây port
-  nguyên cơ chế đó sang, cộng thêm vài tầng đã có sẵn ở job live.
+  promotion_position_type lấy bằng cách lọc sale_source (mỗi đơn thuộc đúng 1 kênh,
+  đã đối chiếu 501/501 đơn ngày 05/08/2026 khớp với cột Order Channel của file export):
+      sale_source 1 = LIVE          -> promotion_position_type 3
+      sale_source 2 = Video         -> promotion_position_type 2
+      sale_source 3 = Thẻ sản phẩm  -> promotion_position_type 1
 
-CƠ CHẾ "BỎ QUA CAPTCHA" (giống job live, giống README prod dòng 105)
-  Script KHÔNG thao tác và KHÔNG giải nội dung CAPTCHA. Nó chỉ:
-    1. PHÁT HIỆN  — dò URL + DOM overlay + dấu hiệu trong nội dung phản hồi.
-    2. BỎ QUA     — đóng sạch context + Chromium process, dựng browser mới, inject lại
-                    cookie, quay lại đúng search_cursor đang dở. Cursor chỉ tăng sau khi
-                    một trang trả thành công, nên không mất và không trùng dữ liệu.
-    3. ĐẦU HÀNG   — hết ngân sách restart thì DỪNG TRƯỚC bước BigQuery. Dữ liệu cũ giữ
-                    nguyên. Muốn chạy tiếp thì lấy cookie mới (anh tự đăng nhập tay).
+CÁCH GỌI API — LANDING MẶC ĐỊNH KHÔNG PHẢI /order, ĐÂY LÀ CHỦ Ý:
+  Script chạy fetch bên trong Chromium (Playwright) để request đi từ một trang cùng
+  origin với Seller Center. Trang đó mặc định là /robots.txt.
+  /order là SPA: load xong nó còn hydrate, tự gọi CHÍNH cái API này, và nạp SDK captcha
+  — tất cả trên đúng main thread mà page.evaluate() cần. Máy nhiều nhân nuốt trôi nên
+  không ai thấy; runner 2 vCPU của GitHub Actions thì evaluate bị bỏ đói và treo.
+  Hai đường cho dữ liệu giống hệt nhau (đối chiếu 288 dòng ngày 31/08/2026).
 
-BA TẦNG XỬ LÝ LỖI (bản prod chỉ có tầng 2)
-  Tầng 1 — CHẾT HẲN, thoát ngay, không xoá gì:
-      HTTP 401/403, code 98001002 / 98001008, bị đá sang trang login/passport.
-  Tầng 2 — BỊ CHẶN, đập browser dựng lại tại đúng cursor:
-      overlay CAPTCHA, URL verify/captcha, code 10000, execution context bị huỷ,
-      page.evaluate quá hạn (renderer treo).
-  Tầng 3 — TRỤC TRẶC TẠM THỜI, thử lại TẠI CHỖ, không đập browser:
-      code lạ (vd 21008301 "Lỗi hệ thống"), HTTP 5xx, JS fetch lỗi mạng.
-      Bản prod xếp nhóm này vào tầng 2 — một cái blip 1 request bị khuếch đại thành
-      reload nguyên Chromium, mà reload mới chính là lúc dễ dính CAPTCHA nhất.
+CHỐNG TREO — BA TẦNG, ĐỪNG GỠ TẦNG NÀO:
+  1. CHẾT HẲN, thoát ngay, không xoá gì:
+       HTTP 401/403, code 98001002 / 98001008, bị đá sang trang login/passport.
+  2. BỊ CHẶN, đập browser dựng lại tại đúng cursor:
+       overlay CAPTCHA, URL verify/captcha, code 10000, context bị huỷ, evaluate quá hạn.
+       Cursor chỉ tăng sau khi một trang trả thành công -> không mất, không trùng dữ liệu.
+  3. TRỤC TRẶC TẠM THỜI, thử lại TẠI CHỖ, không đập browser:
+       code lạ (vd 21008301 "Lỗi hệ thống"), HTTP 5xx, JS fetch lỗi mạng.
+       Xếp nhóm này vào tầng 2 là sai: một blip gateway bị khuếch đại thành reload nguyên
+       Chromium, mà reload mới chính là lúc dễ treo nhất.
 
-  Ngoài ra: deadline tổng cho cả run, trần restart cộng dồn, heartbeat mỗi 20 trang
-  (bản prod im lặng suốt lúc crawl nên nhìn log không phân biệt được treo với chậm).
+  page.evaluate() BẮT BUỘC phải bọc asyncio.wait_for. Playwright không có timeout cho
+  evaluate và set_default_timeout() KHÔNG áp vào nó; AbortController đặt trong JS cũng vô
+  dụng vì setTimeout của nó nằm trên đúng main thread đang bị khoá. Gỡ lớp này ra là job
+  treo tới khi CI cancel — đã xảy ra thật, treo 2 tiếng, hỏng ~11/12 run mỗi ngày.
+  Script KHÔNG giải CAPTCHA: chỉ phát hiện, bỏ browser đó đi, dựng cái sạch, đi tiếp.
+  Hết ngân sách restart thì DỪNG TRƯỚC bước BigQuery, dữ liệu cũ giữ nguyên.
 
-BIẾN MÔI TRƯỜNG THÍ NGHIỆM
-  TIKTOK_BASE_URL — trỏ script sang server giả lập trong test offline. Mặc định là
-  seller-vn.tiktok.com. Nếu khác mặc định, script log cảnh báo to ở dòng đầu.
+VÍ DỤ:
+  py -X utf8 keo_creator_IH.py                      # 41 ngày gần nhất
+  py -X utf8 keo_creator_IH.py --date 2026-08-05 --no-bq --csv out.csv
+  py -X utf8 keo_creator_IH.py --from 2026-06-29 --to 2026-07-31   # backfill
+  py -X utf8 keo_creator_IH.py --last-days 3 --cookie cookie_shop2.txt
 
-Phần đọc cookie / parse dữ liệu / nạp BigQuery giữ NGUYÊN như prod.
+Idempotent: load vào bảng staging, rồi DELETE (id_shop x creator_username x khoảng
+create_time) + INSERT trong MỘT transaction. Chạy lại bao nhiêu lần cũng không nhân đôi,
+và load hỏng thì bảng thật không bị thủng. Service account cần quyền tạo/xoá bảng trong
+dataset (roles/bigquery.dataEditor là đủ).
+
+create_time ghi xuống BigQuery là UTC (không tzinfo) — đúng quy ước sẵn có của bảng,
+đã đối chiếu phân bố giờ của dữ liệu cũ ngày 06/08/2026. Đừng đổi sang giờ VN.
+
+Kéo thiếu là hỏng dữ liệu chứ không phải chạy chậm: vì nap_bq xoá cả khoảng ngày rồi ghi
+lại, script sẽ DỪNG HẲN (không đụng BigQuery) nếu chạm trần MAX_PAGES mà TikTok còn báo
+dữ liệu, hoặc nếu số đơn lấy được ít hơn total_count TikTok tự báo. Chỉ dùng
+--skip-total-check khi đã kiểm tay và biết chắc total_count của TikTok sai.
+
+BỘ TEST: D:\\Kho\\_lab\\creator-captcha\\test_offline.py — 14 kịch bản / 45 assert, chạy
+với Seller Center giả lập, không cần cookie và không đụng BigQuery. Sửa file này xong
+BẮT BUỘC chạy lại:  cd D:\\Kho\\_lab\\creator-captcha && python -X utf8 test_offline.py
 """
 import argparse, asyncio, datetime, json, os, re, sys, time, urllib.parse, uuid
 
 # ---------------------------------------------------------------- cấu hình
-BASE_MAC_DINH = "https://seller-vn.tiktok.com"
-BASE = (os.getenv("TIKTOK_BASE_URL") or BASE_MAC_DINH).rstrip("/")
+# Hằng số cứng, KHÔNG đọc từ biến môi trường. Test offline đổi host bằng cách gán thẳng
+# lab.BASE / lab.API (xem test_offline.py), nên không cần cửa hậu qua env — mà cửa hậu đó
+# trên Actions chỉ là một đường để set nhầm rồi trỏ script sang host lạ.
+BASE = "https://seller-vn.tiktok.com"
 API = BASE + "/api/fulfillment/order/list"
 COOKIE = "cookie.txt"          # file cookie mặc định khi chạy ở máy
 ENV_COOKIE = "TIKTOK_COOKIE"   # biến môi trường, ưu tiên hơn file (dùng cho GitHub Actions)
@@ -1411,9 +1445,6 @@ def main():
     if a.browser_restarts < 0 or a.browser_restart_wait < 0 or a.deadline_phut < 0:
         sys.exit("--browser-restarts, --browser-restart-wait, --deadline-phut không được âm.")
 
-    if BASE != BASE_MAC_DINH:
-        log(f"!!! CHẾ ĐỘ THÍ NGHIỆM: TIKTOK_BASE_URL={BASE} (không phải TikTok thật) !!!")
-
     if a.d_from or a.d_to:
         if not (a.d_from and a.d_to):
             sys.exit("--from và --to phải đi cùng nhau.")
@@ -1479,3 +1510,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
