@@ -735,7 +735,7 @@ BQ_PROJECT = "rhysman-data-warehouse-488306"
 BQ_DATASET = "rhysman"
 BQ_TABLE = "fact_creator_tiktok"
 
-LAST_DAYS_MAC_DINH = 41
+LAST_DAYS_MAC_DINH = 30
 
 CREATORS = {
     "rhysman.com": "Rhys Man Chính Hãng",
