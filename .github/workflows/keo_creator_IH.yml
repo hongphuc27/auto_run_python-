@@ -1,12 +1,93 @@
+# name: TikTok Creator Sync IH
+
+# on:
+#   schedule:
+#     # Mỗi 2 giờ. Giờ UTC -> giờ VN cộng 7: 07:00, 09:00, 11:00 ... 05:00 sáng hôm sau.
+#     # DELETE+INSERT theo đúng khoảng ngày nên chạy chồng lên nhau không nhân đôi.
+#     # LƯU Ý: mỗi run kéo 41 ngày (~200 trang API, 10-20 phút) và ghi lại 41 partition.
+#     # 12 run/ngày = 12 lần viết lại trọn 41 ngày. Muốn nhẹ hơn thì giãn cron ra.
+#     - cron: "0 */2 * * *"
+#   workflow_dispatch:
+#     inputs:
+#       last_days:
+#         description: "Kéo N ngày gần nhất (tính cả hôm nay)"
+#         required: false
+#         default: "25"
+#       date_from:
+#         description: "Backfill từ ngày YYYY-MM-DD (đi kèm date_to)"
+#         required: false
+#       date_to:
+#         description: "Backfill đến ngày YYYY-MM-DD"
+#         required: false
+#       skip_total_check:
+#         description: "Bỏ đối chiếu total_count của TikTok (chỉ khi biết chắc TikTok báo sai)"
+#         required: false
+#         type: boolean
+#         default: false
+
+# # Backfill dài chạy đè lên cron 2 tiếng sẽ có 2 run cùng DELETE+INSERT một khoảng ngày.
+# # Transaction bên BigQuery sẽ huỷ một cái, nhưng xếp hàng ở đây thì sạch hơn.
+# concurrency:
+#   group: tiktok-creator-sync
+#   cancel-in-progress: false
+
+# jobs:
+#   keo:
+#     runs-on: ubuntu-latest
+#     timeout-minutes: 120
+#     # KHÔNG đặt working-directory: keo_creator_IH.py nằm ở gốc repo auto_run_python-.
+#     steps:
+#       - uses: actions/checkout@v4
+
+#       - uses: actions/setup-python@v5
+#         with:
+#           python-version: "3.12"
+
+#       # Playwright gọi API từ bên trong Seller Center page và có thể dựng lại
+#       # toàn bộ Chromium tại đúng cursor đang dở.
+#       - name: Cài thư viện
+#         run: |
+#           pip install --quiet google-cloud-bigquery playwright==1.49.0
+#           python -m playwright install --with-deps chromium
+
+#       - name: Kiểm tra secrets
+#         env:
+#           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+#           TIKTOK_COOKIE: ${{ secrets.TIKTOK_COOKIE_RHYSMAN }}
+#         run: |
+#           if [ -z "$GOOGLE_SERVICE_ACCOUNT_JSON" ]; then echo "::error::Thiếu secret GOOGLE_SERVICE_ACCOUNT_JSON"; exit 1; fi
+#           if [ -z "$TIKTOK_COOKIE" ]; then echo "::error::Thiếu secret TIKTOK_COOKIE_RHYSMAN"; exit 1; fi
+
+#       # Cả cookie lẫn service account đều truyền thẳng qua biến môi trường,
+#       # KHÔNG ghi ra file. Đổi credentials = sửa mỗi secret, không đụng code.
+#       - name: Kéo dữ liệu creator
+#         env:
+#           TIKTOK_COOKIE: ${{ secrets.TIKTOK_COOKIE_RHYSMAN }}
+#           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+#           LAST_DAYS: ${{ github.event.inputs.last_days }}
+#           DATE_FROM: ${{ github.event.inputs.date_from }}
+#           DATE_TO: ${{ github.event.inputs.date_to }}
+#           SKIP_TOTAL: ${{ github.event.inputs.skip_total_check }}
+#         run: |
+#           FLAGS=""
+#           if [ "$SKIP_TOTAL" = "true" ]; then FLAGS="--skip-total-check"; fi
+#           if [ -n "$DATE_FROM" ] && [ -n "$DATE_TO" ]; then
+#             python keo_creator_IH.py --from "$DATE_FROM" --to "$DATE_TO" $FLAGS
+#           else
+#             python keo_creator_IH.py --last-days "${LAST_DAYS:-41}" $FLAGS
+#           fi
+
+
+
+
 name: TikTok Creator Sync IH
 
 on:
   schedule:
-    # Mỗi 2 giờ. Giờ UTC -> giờ VN cộng 7: 07:00, 09:00, 11:00 ... 05:00 sáng hôm sau.
-    # DELETE+INSERT theo đúng khoảng ngày nên chạy chồng lên nhau không nhân đôi.
-    # LƯU Ý: mỗi run kéo 41 ngày (~200 trang API, 10-20 phút) và ghi lại 41 partition.
-    # 12 run/ngày = 12 lần viết lại trọn 41 ngày. Muốn nhẹ hơn thì giãn cron ra.
-    - cron: "0 */2 * * *"
+    # Nhịp nhanh: 3 ngày gần nhất, mỗi 2 tiếng. Lệch phút :00 cho đỡ xếp hàng.
+    - cron: "17 */2 * * *"
+    # Nhịp đầy đủ: 41 ngày, mỗi ngày một lần lúc 19:40 UTC = 02:40 giờ VN (thấp điểm).
+    - cron: "40 19 * * *"
   workflow_dispatch:
     inputs:
       last_days:
@@ -24,9 +105,14 @@ on:
         required: false
         type: boolean
         default: false
+      deadline_phut:
+        description: "Trần thời gian cả run, 0 = tắt. ĐỂ 0 ở run đo thời gian thật đầu tiên."
+        required: false
+        default: "45"
 
-# Backfill dài chạy đè lên cron 2 tiếng sẽ có 2 run cùng DELETE+INSERT một khoảng ngày.
-# Transaction bên BigQuery sẽ huỷ một cái, nhưng xếp hàng ở đây thì sạch hơn.
+# Nhịp nhanh và nhịp đầy đủ ghi đè khoảng ngày lồng nhau (3 ngày nằm trong 41 ngày), nên
+# hai run không được chạy song song. Giữ hàng đợi thay vì huỷ, để nhịp đầy đủ không bị
+# nhịp nhanh cắt ngang giữa transaction.
 concurrency:
   group: tiktok-creator-sync
   cancel-in-progress: false
@@ -34,7 +120,7 @@ concurrency:
 jobs:
   keo:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: ${{ github.event.schedule == '17 */2 * * *' && 20 || 70 }}
     # KHÔNG đặt working-directory: keo_creator_IH.py nằm ở gốc repo auto_run_python-.
     steps:
       - uses: actions/checkout@v4
@@ -43,11 +129,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Playwright gọi API từ bên trong Seller Center page và có thể dựng lại
-      # toàn bộ Chromium tại đúng cursor đang dở.
+      # Playwright gọi API từ trong một trang cùng origin với Seller Center, và có thể
+      # dựng lại toàn bộ Chromium tại đúng cursor đang dở.
       - name: Cài thư viện
         run: |
-          pip install --quiet google-cloud-bigquery playwright==1.49.0
+          pip install --quiet google-cloud-bigquery playwright==1.58.0
           python -m playwright install --with-deps chromium
 
       - name: Kiểm tra secrets
@@ -64,15 +150,18 @@ jobs:
         env:
           TIKTOK_COOKIE: ${{ secrets.TIKTOK_COOKIE_RHYSMAN }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          LAST_DAYS: ${{ github.event.inputs.last_days }}
+          # Chạy tay -> dùng input (mặc định 25, giữ nguyên như cũ).
+          # Cron nhanh -> 3 ngày. Cron đầy đủ -> 41 ngày (bằng đúng hành vi cũ).
+          LAST_DAYS: ${{ github.event.inputs.last_days || (github.event.schedule == '17 */2 * * *' && '3' || '41') }}
           DATE_FROM: ${{ github.event.inputs.date_from }}
           DATE_TO: ${{ github.event.inputs.date_to }}
           SKIP_TOTAL: ${{ github.event.inputs.skip_total_check }}
+          DEADLINE: ${{ github.event.inputs.deadline_phut || (github.event.schedule == '17 */2 * * *' && '15' || '60') }}
         run: |
-          FLAGS=""
-          if [ "$SKIP_TOTAL" = "true" ]; then FLAGS="--skip-total-check"; fi
+          FLAGS="--deadline-phut $DEADLINE"
+          if [ "$SKIP_TOTAL" = "true" ]; then FLAGS="$FLAGS --skip-total-check"; fi
           if [ -n "$DATE_FROM" ] && [ -n "$DATE_TO" ]; then
             python keo_creator_IH.py --from "$DATE_FROM" --to "$DATE_TO" $FLAGS
           else
-            python keo_creator_IH.py --last-days "${LAST_DAYS:-41}" $FLAGS
+            python keo_creator_IH.py --last-days "$LAST_DAYS" $FLAGS
           fi
