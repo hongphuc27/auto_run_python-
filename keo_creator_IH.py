@@ -64,7 +64,7 @@ lại, script sẽ DỪNG HẲN (không đụng BigQuery) nếu chạm trần MA
 dữ liệu, hoặc nếu số đơn lấy được ít hơn total_count TikTok tự báo. Chỉ dùng
 --skip-total-check khi đã kiểm tay và biết chắc total_count của TikTok sai.
 
-BỘ TEST: D:\\Kho\\_lab\\creator-captcha\\test_offline.py — 14 kịch bản / 45 assert, chạy
+BỘ TEST: D:\\Kho\\_lab\\creator-captcha\\test_offline.py — 21 kịch bản / 76 assert, chạy
 với Seller Center giả lập, không cần cookie và không đụng BigQuery. Sửa file này xong
 BẮT BUỘC chạy lại:  cd D:\\Kho\\_lab\\creator-captcha && python -X utf8 test_offline.py
 """
@@ -136,14 +136,28 @@ API_RETRY_TAI_CHO = 5          # thử lại tại chỗ trước khi nghĩ tớ
 API_RETRY_SLEEP = (3, 10, 30, 60, 120)
 HEARTBEAT_MOI = 20             # log tiến độ mỗi N trang
 
-# Cắt khoảng ngày thành nhiều khối nhỏ. KHÔNG phải để chạy nhanh hơn — để cursor không
-# đi sâu. Cursor của TikTok vỡ quanh TRANG 79 (~7.900 đơn), đã gặp đúng mốc đó 2 lần:
-#   31/08/2026, cửa sổ 41 ngày: trang 79 "upstream failed to respond" -> thử lại tại chỗ
-#                               nên qua được
-#   10/09/2026, cửa sổ 30 ngày: trang 79 code 10000 -> bị xếp sai tầng (đập browser)
-#                               nên chết cả run
-# Với ~300-400 đơn LIVE mỗi ngày thì 7 ngày ≈ 21-28 trang, còn xa mốc 79.
-CHUNK_NGAY_MAC_DINH = 7
+# Cắt khoảng ngày thành khối nhỏ. MẶC ĐỊNH TẮT (0) — giữ lại cờ vì có thể còn cần, nhưng
+# đừng bật nếu không có lý do cụ thể.
+#
+# Vì sao tắt: ban đầu bật để chống giả thuyết "cursor vỡ khi đi sâu quá trang 79". Log
+# 10/09/2026 phủ nhận giả thuyết đó — với chia khối, run vẫn chết nhưng ở TRANG 14 của
+# khối 3, tức không liên quan độ sâu. Đếm lại thì lộ ra sự thật:
+#     run không chia khối : 78 request thành công, chặn ở request 79, sau 5m35s
+#     run có chia khối    : 78 request thành công, chặn ở request 79, sau 5m28s
+# Hai cấu trúc hoàn toàn khác nhau, cùng một bức tường => HẠN MỨC CHO CẢ RUN (~78 request
+# hoặc ~5,5 phút; hai con số lẫn nhau vì nhịp đều 4,2s/request).
+#
+# Dưới hạn mức đó, chia khối còn PHẢN TÁC DỤNG: mỗi khối phải gọi lại trang đầu cho cả 3
+# kênh, nên 5 khối = 15 request mở đầu thay vì 3 — đốt mất ~12 trong 78 request.
+CHUNK_NGAY_MAC_DINH = 0
+
+# Chỉ dùng để CẢNH BÁO TRƯỚC khi chạy, không ảnh hưởng dữ liệu.
+# DON_MOI_NGAY_UOC: đo từ log run 08:45 ngày 10/09/2026 — khối 1+2 đã kéo trọn 14 ngày,
+#   tổng 6.159 đơn cả 3 kênh => ~440 đơn/ngày. Shop lớn dần thì nên đo lại.
+# HAN_MUC_REQUEST_UOC: số request lớn nhất một run đi được trước khi TikTok trả code
+#   10000 liên tục. Quan sát 78 ở CẢ HAI run ngày 10/09/2026.
+DON_MOI_NGAY_UOC = 440
+HAN_MUC_REQUEST_UOC = 78
 
 # Overlay CAPTCHA của Seller Center nằm TRÊN CÙNG url /order, không đổi URL — nên bản
 # prod (chỉ dò chuỗi trong URL) không bao giờ thấy nó.
@@ -183,6 +197,12 @@ JS_DO_CAPTCHA = """
 
 # Dấu hiệu bị chặn khi phản hồi không phải JSON (TikTok trả thẳng trang HTML xác minh).
 DAU_HIEU_CHAN = ("captcha", "secsdk", "verify", "/passport", "risk_control")
+
+
+def uoc_so_request(so_ngay, page_size):
+    """Ước số request cần cho cửa sổ `so_ngay` ngày. CHỈ để cảnh báo trước khi chạy —
+    không ảnh hưởng dữ liệu. +3 vì mỗi kênh tốn tối thiểu 1 trang."""
+    return -(-(DON_MOI_NGAY_UOC * so_ngay) // page_size) + 3
 
 
 def log(*a):
@@ -345,9 +365,21 @@ class TikTokBrowserClient:
         self.so_lan_captcha = 0
         self.so_lan_treo = 0
         self.browser_number = 0
+        # Đếm để đo HẠN MỨC CẢ RUN. Hai run ngày 10/09/2026 đều bị chặn ở đúng request
+        # thứ 79 (một run 78 trang LIVE liên tiếp, một run rải qua 3 khối × 3 kênh) sau
+        # ~5,5 phút. Số request và thời gian lẫn nhau vì nhịp đều 4,2s/request, nên cứ
+        # log cả hai — log run sau sẽ tự phân định hạn mức là theo request hay theo giờ.
+        self.so_request_ok = 0
+        self.bat_dau = time.monotonic()
+
         self.browser = None
         self.context = None
         self.page = None
+
+    def tom_tat_han_muc(self):
+        giay = time.monotonic() - self.bat_dau
+        return (f"{self.so_request_ok} request thành công trong "
+                f"{int(giay // 60)}m{int(giay % 60):02d}s")
 
     # ------------------------------------------------------------ tiện ích
     def _kiem_deadline(self):
@@ -436,10 +468,20 @@ class TikTokBrowserClient:
         await self._destroy_browser()
         if self.restart_count >= self.browser_restarts:
             sys.exit(
-                f"[BROWSER] Đã đập và dựng lại Chromium {self.browser_restarts} lần liên tiếp "
-                f"tại {mo_ta_trang} nhưng vẫn lỗi: {error}. Cursor chưa tăng và BigQuery chưa "
-                f"bị thay đổi. (Gặp CAPTCHA {self.so_lan_captcha} lần — nếu con số này cao thì "
-                f"cookie đang bị risk-control, cần đăng nhập tay lấy cookie mới.)"
+                f"[BROWSER] Đã đập và dựng lại Chromium {self.browser_restarts} lần liên "
+                f"tiếp tại {mo_ta_trang} nhưng vẫn lỗi: {error}.\n"
+                f"  Đã dùng: {self.tom_tat_han_muc()} (CAPTCHA {self.so_lan_captcha} lần, "
+                f"renderer treo {self.so_lan_treo} lần).\n"
+                f"  Cursor chưa tăng và BigQuery CHƯA bị thay đổi.\n"
+                f"  Có hai nguyên nhân, phân biệt bằng con số 'đã dùng' ở trên:\n"
+                f"  (1) HẠN MỨC CẢ RUN — nếu số request quanh {HAN_MUC_REQUEST_UOC} hoặc "
+                f"thời gian quanh 5,5 phút. Hai run ngày 10/09/2026 đều dừng ở đúng request "
+                f"thứ 79 dù cấu trúc khác hẳn nhau. Cookie KHÔNG hỏng; cửa sổ đang kéo chỉ "
+                f"đơn giản là cần nhiều request hơn mức TikTok cho. Cách sửa là GIẢM SỐ "
+                f"REQUEST chứ không phải thử lại: tăng --page-size (100 -> 200/500) hoặc "
+                f"giảm --last-days. Với page-size 100 thì cửa sổ tối đa chỉ khoảng 17 ngày.\n"
+                f"  (2) COOKIE BỊ RISK-CONTROL — nếu bị chặn ngay từ những request đầu, hoặc "
+                f"số lần CAPTCHA cao. Lúc đó cần đăng nhập tay lấy cookie mới."
             )
         if self.tong_restart >= self.max_restart_tong:
             sys.exit(
@@ -524,6 +566,7 @@ class TikTokBrowserClient:
             await self._ensure_browser(mo_ta_trang)
             try:
                 js = await self._goi_mot_lan(url, body)
+                self.so_request_ok += 1
                 # Ngân sách restart là cho một CHUỖI lỗi liên tiếp, không phải cho cả run:
                 # backfill vài trăm trang dính 3 lỗi vặt cách xa nhau vẫn phải chạy tiếp.
                 self.restart_count = 0
@@ -598,7 +641,9 @@ async def keo_mot_kenh(client, seller_id, sale_source, t0, t1, kiem_tra_total=Tr
         # Bản prod im lặng suốt lúc crawl nên nhìn log không phân biệt được "treo" với
         # "chậm". Heartbeat để lần sau đọc log là biết ngay.
         if pages % HEARTBEAT_MOI == 0:
-            log(f"    ... {nhan}sale_source={sale_source}: {pages} trang, {so_don} đơn")
+            # In luôn hạn mức đã dùng: đây là con số cần để biết còn bao xa tới tường.
+            log(f"    ... {nhan}sale_source={sale_source}: {pages} trang, {so_don} đơn "
+                f"| cả run: {client.tom_tat_han_muc()}")
         con_tiep = bool(d.get("search_next_has_more")) and bool(cursor)
         if not con_tiep:
             break
@@ -633,9 +678,14 @@ async def keo_mot_kenh(client, seller_id, sale_source, t0, t1, kiem_tra_total=Tr
 def chia_khoi_ngay(d0, d1, so_ngay):
     """Cắt [d0, d1] thành các khối liền nhau, mỗi khối tối đa `so_ngay` ngày.
 
+    `so_ngay <= 0` nghĩa là KHÔNG cắt — trả về một khối duy nhất. Đây là mặc định; lý do
+    xem CHUNK_NGAY_MAC_DINH.
+
     Các khối rời nhau và phủ kín, nên gộp lại đúng bằng khoảng gốc — không hở ngày nào,
-    không trùng ngày nào. Lý do phải cắt: xem CHUNK_NGAY_MAC_DINH.
+    không trùng ngày nào.
     """
+    if so_ngay <= 0:
+        return [(d0, d1)]
     khoi, dau = [], d0
     while dau <= d1:
         cuoi = min(dau + datetime.timedelta(days=so_ngay - 1), d1)
@@ -815,6 +865,10 @@ async def chay_crawl(cookie_state, seller_id, khoi_ngay, a):
 
 
 def main():
+    # keo_mot_kenh đọc PAGE_SIZE như biến module (giống cách test_offline.py vá các hằng
+    # số khác), nên --page-size ghi thẳng vào đây. Khai báo phải nằm trước mọi lần đọc
+    # tên này trong hàm, kể cả trong default= của argparse.
+    global PAGE_SIZE
     ap = argparse.ArgumentParser(description="Kéo người nhận hoa hồng TikTok -> BigQuery (BẢN LAB)")
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--date", help="một ngày YYYY-MM-DD (giờ VN)")
@@ -846,15 +900,25 @@ def main():
     ap.add_argument("--headful", action="store_true",
                     help="hiện cửa sổ Chromium (xem tận mắt CAPTCHA lúc debug ở máy)")
     ap.add_argument("--chunk-ngay", type=int, default=CHUNK_NGAY_MAC_DINH,
-                    help=f"cắt khoảng ngày thành từng khối tối đa N ngày rồi kéo lần lượt "
-                         f"(mặc định {CHUNK_NGAY_MAC_DINH}). Để cursor không đi sâu tới "
-                         f"ngưỡng ~trang 79 của TikTok. Tăng lên là mời lại đúng lỗi cũ.")
+                    help=f"cắt khoảng ngày thành từng khối tối đa N ngày (mặc định "
+                         f"{CHUNK_NGAY_MAC_DINH} = không cắt). Bật lên là TỐN THÊM request "
+                         f"vì mỗi khối phải gọi lại trang đầu cho cả 3 kênh.")
+    ap.add_argument("--page-size", type=int, default=PAGE_SIZE,
+                    help=f"số đơn mỗi request (mặc định {PAGE_SIZE}). ĐÂY LÀ CỜ QUAN TRỌNG "
+                         f"NHẤT khi gặp [HẠN MỨC]: run bị chặn sau ~78 request, nên tăng "
+                         f"page-size là cách duy nhất kéo được cửa sổ rộng. 30 ngày cần "
+                         f"~135 request ở 100, nhưng chỉ ~69 ở 200 và ~30 ở 500. "
+                         f"CHƯA KIỂM CHỨNG TikTok có nhận >100 hay không — thử bằng "
+                         f"--date <1 ngày> --no-bq rồi xem số trang trong log.")
     a = ap.parse_args()
 
     if a.browser_restarts < 0 or a.browser_restart_wait < 0 or a.deadline_phut < 0:
         sys.exit("--browser-restarts, --browser-restart-wait, --deadline-phut không được âm.")
-    if a.chunk_ngay < 1:
-        sys.exit("--chunk-ngay phải >= 1.")
+    if a.chunk_ngay < 0:
+        sys.exit("--chunk-ngay không được âm (0 = không cắt).")
+    if a.page_size < 1:
+        sys.exit("--page-size phải >= 1.")
+    PAGE_SIZE = a.page_size
 
     if a.d_from or a.d_to:
         if not (a.d_from and a.d_to):
@@ -885,8 +949,17 @@ def main():
 
     log(f"shop {seller_id} | {d0} -> {d1} (giờ VN)")
     log(f"khoảng create_time UTC sẽ ghi đè: {utc0} -> {utc1}")
-    log(f"cắt thành {len(khoi_ngay)} khối, mỗi khối <= {a.chunk_ngay} ngày "
-        f"(giữ cursor xa ngưỡng ~trang 79 của TikTok)")
+    so_ngay_keo = (d1 - d0).days + 1
+    so_don_uoc = DON_MOI_NGAY_UOC * so_ngay_keo
+    uoc_request = uoc_so_request(so_ngay_keo, PAGE_SIZE)
+    mo_ta_khoi = "" if a.chunk_ngay <= 0 else f" (<= {a.chunk_ngay} ngày mỗi khối)"
+    log(f"page_size={PAGE_SIZE} | {len(khoi_ngay)} khối{mo_ta_khoi} | "
+        f"ước ~{uoc_request} request cho ~{so_don_uoc:,} đơn")
+    if uoc_request > HAN_MUC_REQUEST_UOC:
+        log(f"  ! CẢNH BÁO: ước {uoc_request} request, vượt hạn mức "
+            f"~{HAN_MUC_REQUEST_UOC} quan sát được ngày 10/09/2026. Run này khả năng cao "
+            f"bị chặn giữa đường và KHÔNG ghi được gì. Tăng --page-size (nếu TikTok nhận) "
+            f"hoặc giảm --last-days.")
 
     try:
         import playwright  # noqa: F401
