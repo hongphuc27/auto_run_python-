@@ -1013,6 +1013,12 @@
 
 
 
+
+
+
+
+
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -1119,7 +1125,11 @@ EVAL_TIMEOUT_S = 90.0          # timeout Python độc lập với timer trong J
 CANARY_TIMEOUT_S = 15.0        # renderer còn sống không, hỏi ngay sau khi launch
 CLOSE_TIMEOUT_S = 20.0         # browser.close() cũng treo được khi renderer đang spin
 BROWSER_SETTLE_MS = 4_000
-DEADLINE_PHUT_MAC_DINH = 45
+# Phải chứa nổi: việc thật (~11 phút cho 30 ngày ở page_size 100) + trọn ngân sách nằm
+# chờ tiết chế (TIET_CHE_CHO_TOI_DA_GIAY = 30 phút) + biên. Run 09:27 ngày 10/09/2026 về
+# đích ở 25m38s, trong đó 15m32s là nằm chờ — deadline 45 phút vẫn đủ nhưng sát, 60 cho
+# chỗ thở khi shop lớn thêm.
+DEADLINE_PHUT_MAC_DINH = 60
 
 # Trang nhẹ cùng origin; không đảm bảo bootstrap đầy đủ SDK của Seller Center.
 # Giữ lựa chọn gốc để không đổi đồng thời luồng bootstrap chưa được test trên TikTok thật.
@@ -1137,6 +1147,37 @@ HEARTBEAT_MOI = 20             # log tiến độ mỗi N trang
 # Chia khối thay đổi phạm vi truy vấn, không làm reset trạng thái xác minh phía server.
 # Không suy ra một hạn mức cố định từ số request trong ảnh/log.
 CHUNK_NGAY_MAC_DINH = 0
+
+# --- TIẾT CHẾ (code 10000) ---------------------------------------------------
+# TikTok tiết chế sau một số request trong một run. ĐÂY LÀ TIẾT CHẾ CÓ HỒI PHỤC, KHÔNG
+# phải trần cứng và KHÔNG phải cookie hỏng — cứ CHỜ đủ lâu là đi tiếp được.
+#
+# Bằng chứng, run 09:27 ngày 10/09/2026 (run này KẾT THÚC THÀNH CÔNG):
+#     25m38s · 115 request · 12.528 dòng · DELETE 12.198 + INSERT 12.528 · XONG
+#     thống kê chặn: CAPTCHA 23 lần, renderer treo 0 lần, restart browser 3 lần
+#   diễn biến:
+#     request 1..77 : chạy trơn, ~4,9 s/request
+#     request 78    : bị tiết chế lúc 09:33:52
+#     09:33:52 -> 09:49:24 : bị chặn 15m32s. Cộng thang chờ 4 chu kỳ × 223s = 14m52s,
+#                   cộng 3 lần dựng lại Chromium × ~10s = 30s => 15m22s, khớp.
+#                   => Thứ giải phóng run là 15 PHÚT CHỜ; dựng lại browser chỉ góp 30s
+#                      trong 932s, gần như vô can.
+#     sau đó       : chạy tiếp tới 115 request, KHÔNG bị chặn lần nữa.
+#
+# ĐỪNG biến 10000 thành sys.exit. Run trên gặp nó 23 lần; thoát ở lần thứ nhất là mất
+# trắng 12.528 dòng và job đứng hẳn. Cũng đừng suy ra một hạn mức cứng từ con số 77.
+TIET_CHE_SLEEP = (60, 120, 180, 300, 300, 300, 300)   # tổng 26 phút
+TIET_CHE_CHO_TOI_DA_GIAY = 30 * 60      # tổng thời gian được phép NẰM CHỜ trong một run
+
+# Bản sao bất biến của thang chờ thật. Bộ test rút ngắn TIET_CHE_SLEEP xuống mili-giây để
+# chạy nhanh, nên nếu không có bản sao này thì không test nào khoá được giá trị production
+# — mà chính giá trị đó mới quyết định script có sống qua đợt tiết chế 15 phút hay không.
+TIET_CHE_SLEEP_THAT = TIET_CHE_SLEEP
+
+# Chỉ dùng để CẢNH BÁO TRƯỚC khi chạy, không ảnh hưởng dữ liệu và không phải hạn mức.
+# DON_MOI_NGAY_UOC đo từ log run 08:45 ngày 10/09/2026 (14 ngày, 6.159 đơn cả 3 kênh).
+DON_MOI_NGAY_UOC = 440
+NGUONG_TIET_CHE_UOC = 77
 
 # Overlay CAPTCHA của Seller Center nằm TRÊN CÙNG url /order, không đổi URL — nên bản
 # prod (chỉ dò chuỗi trong URL) không bao giờ thấy nó.
@@ -1175,7 +1216,11 @@ JS_DO_CAPTCHA = """
 """
 
 # Dấu hiệu bị chặn khi phản hồi không phải JSON (TikTok trả thẳng trang HTML xác minh).
-DAU_HIEU_CHAN = ("captcha", "secsdk", "verify", "/passport", "risk_control")
+# KHÔNG đưa "/passport" vào đây: trang xác minh của TikTok cũng nạp script từ /passport/,
+# nên nếu kiểm "/passport" trước thì một trang CAPTCHA bị chẩn đoán nhầm thành "cookie
+# chết" và cả run bị giết oan. Dấu hiệu xác minh đặc trưng hơn nên phải xét TRƯỚC; việc
+# nhận diện trang đăng nhập thật để riêng ở dưới.
+DAU_HIEU_CHAN = ("captcha", "secsdk", "verify", "risk_control")
 
 
 def log(*a):
@@ -1265,11 +1310,26 @@ class BiChan(RuntimeError):
 
 
 class TrucTracTamThoi(RuntimeError):
-    """Lỗi API/mạng tạm thời; hết retry thì dừng, không dựng lại browser."""
+    """Lỗi API/mạng tạm thời; retry tại chỗ, hết ngân sách mới leo thang."""
 
     def __init__(self, message, retry_after=None):
         super().__init__(message)
         self.retry_after = retry_after
+
+
+class BiTietChe(RuntimeError):
+    """TikTok tiết chế (code 10000). CHỈ CHỜ mới hết — xem TIET_CHE_SLEEP.
+
+    Tách riêng khỏi TrucTracTamThoi vì thang chờ dài gấp cả chục lần và có ngân sách chờ
+    riêng cho cả run. Tuyệt đối KHÔNG đập browser ở đây: bằng chứng cho thấy dựng lại
+    browser gần như vô can, chỉ thời gian mới giải quyết.
+    """
+
+
+def uoc_so_request(so_ngay, page_size):
+    """Ước số request cho cửa sổ `so_ngay` ngày. CHỈ để in cảnh báo trước khi chạy —
+    không ảnh hưởng dữ liệu, không phải hạn mức. +3 vì mỗi kênh tốn tối thiểu 1 trang."""
+    return -(-(DON_MOI_NGAY_UOC * so_ngay) // page_size) + 3
 
 
 def doc_retry_after(value):
@@ -1367,6 +1427,7 @@ class TikTokBrowserClient:
         # Đếm request thành công để chẩn đoán, không dùng làm ngưỡng quota.
         self.so_request_ok = 0
         self.bat_dau = time.monotonic()
+        self.tong_cho_tiet_che = 0      # tổng số giây đã NẰM CHỜ vì bị tiết chế
 
         self.browser = None
         self.context = None
@@ -1410,13 +1471,16 @@ class TikTokBrowserClient:
         await asyncio.sleep(giay)
         self._kiem_deadline()
 
-    def _dung_xac_minh(self, ly_do):
+    def _bao_xac_minh(self, ly_do):
+        """Gặp giao diện/redirect xác minh: bỏ browser đó, dựng cái sạch, thử tiếp.
+
+        KHÔNG thoát hẳn ở đây. Run 09:27 ngày 10/09/2026 gặp tín hiệu chặn 23 lần mà vẫn
+        về đích với 12.528 dòng — thoát ở lần đầu là mất trắng và job đứng hẳn. Nếu chặn
+        thật sự dai thì ngân sách restart sẽ cạn, và [BROWSER] mới là chỗ dừng, kèm hướng
+        dẫn xác minh tay. Script vẫn KHÔNG giải CAPTCHA, chỉ bỏ qua browser bị dính.
+        """
         self.so_lan_captcha += 1
-        sys.exit(f"[XÁC MINH] {ly_do}. Đã nhận {self.tom_tat_han_muc()}. "
-                 "DỪNG, KHÔNG đụng BigQuery; không tự retry hoặc đổi browser. "
-                 "Mở Seller Center bằng trình duyệt của anh, hoàn tất yêu cầu xác minh, "
-                 "cập nhật phiên/cookie qua nơi lưu secret rồi chạy --no-bq để kiểm tra. "
-                 "Log này không xác định được hạn mức request hay nguyên nhân risk-control.")
+        raise BiChan(f"{ly_do} (lần thứ {self.so_lan_captcha})")
 
     def _kiem_url_auth(self, url):
         # Chỉ dùng host/path để phân loại; không in query có thể chứa token đăng nhập.
@@ -1425,7 +1489,7 @@ class TikTokBrowserClient:
         if "login" in target or "passport" in target:
             sys.exit("[COOKIE] Bị chuyển sang trang đăng nhập. Cập nhật cookie rồi chạy lại.")
         if "verify" in target or "captcha" in target:
-            self._dung_xac_minh("Bị chuyển sang trang xác minh")
+            self._bao_xac_minh("Bị chuyển sang trang xác minh")
 
     def _playwright_cookies(self):
         cookies = []
@@ -1464,7 +1528,7 @@ class TikTokBrowserClient:
         el = await self._han(self.page.evaluate(JS_DO_CAPTCHA, CAPTCHA_SELECTORS),
                              self.canary_timeout, "dò CAPTCHA trong DOM")
         if el is not None:
-            self._dung_xac_minh("Overlay CAPTCHA đang hiển thị")
+            self._bao_xac_minh("Overlay CAPTCHA đang hiển thị")
 
     async def _launch_browser(self):
         self.browser_number += 1
@@ -1495,7 +1559,10 @@ class TikTokBrowserClient:
         if self.restart_count >= self.browser_restarts:
             sys.exit(f"[BROWSER] Hết {self.browser_restarts} lần restart liên tiếp tại "
                      f"{mo_ta_trang}. DỪNG, KHÔNG đụng BigQuery. "
-                     f"Đã nhận {self.tom_tat_han_muc()}.")
+                     f"Đã nhận {self.tom_tat_han_muc()}; gặp tín hiệu xác minh "
+                     f"{self.so_lan_captcha} lần, renderer treo {self.so_lan_treo} lần. "
+                     f"Nếu số lần xác minh cao: mở Seller Center bằng trình duyệt, hoàn "
+                     f"tất xác minh, lấy cookie mới rồi chạy lại với --no-bq để kiểm tra.")
         if self.tong_restart >= self.max_restart_tong:
             sys.exit(f"[BROWSER] Chạm trần {self.max_restart_tong} lần restart cả lượt. "
                      "DỪNG, KHÔNG đụng BigQuery.")
@@ -1549,10 +1616,12 @@ class TikTokBrowserClient:
                      "DỪNG, KHÔNG đụng BigQuery.")
         if result.get("error"):
             err = str(result["error"])
+            # Thứ tự quan trọng: dấu hiệu XÁC MINH xét trước dấu hiệu ĐĂNG NHẬP, vì trang
+            # xác minh cũng nạp script /passport/. Đảo lại là CAPTCHA bị coi là cookie chết.
+            if co_dau_hieu_chan(err):
+                self._bao_xac_minh("Phản hồi chứa dấu hiệu trang xác minh")
             if "/passport" in err.lower() or re.search(r"/login(?:[/?\s\"'])", err, re.I):
                 sys.exit("[COOKIE] Phản hồi là trang đăng nhập. Cập nhật cookie rồi chạy lại.")
-            if co_dau_hieu_chan(err):
-                self._dung_xac_minh("Phản hồi chứa dấu hiệu trang xác minh")
             # Không log response HTML hay message thô: có thể chứa token hoặc dữ liệu đơn.
             raise TrucTracTamThoi("JS fetch lỗi mạng hoặc phản hồi không phải JSON")
         js = result.get("data")
@@ -1567,28 +1636,67 @@ class TikTokBrowserClient:
             sys.exit(f"[COOKIE] TikTok trả code {code}. Kiểm tra đăng nhập/cookie. "
                      "DỪNG, KHÔNG đụng BigQuery.")
         if code == "10000":
-            self._dung_xac_minh("TikTok trả code=10000 (yêu cầu xác minh trong log đã gửi)")
+            # TIẾT CHẾ, không phải chết hẳn. Chỉ chờ mới hết — xem TIET_CHE_SLEEP.
+            self.so_lan_captcha += 1
+            raise BiTietChe("TikTok trả code=10000 (yêu cầu xác minh)")
         raise TrucTracTamThoi(f"API code={code}")
 
     async def post(self, url, body, mo_ta_trang):
-        lan_thu = 0
+        lan_thu = lan_tiet_che = 0
         while True:
             self._kiem_deadline()
             await self._ensure_browser(mo_ta_trang)
             try:
                 js = await self._goi_mot_lan(url, body)
                 self.so_request_ok += 1
+                lan_tiet_che = 0
                 # Ngân sách restart là cho một CHUỖI lỗi liên tiếp, không phải cho cả run:
                 # backfill vài trăm trang dính 3 lỗi vặt cách xa nhau vẫn phải chạy tiếp.
                 self.restart_count = 0
                 return js
             except SystemExit:
                 raise
+            except BiTietChe as error:
+                # CHỜ, và chỉ chờ. Không đập browser (gần như vô can — xem TIET_CHE_SLEEP),
+                # không đụng ngân sách restart, không tính vào ngân sách retry API.
+                lan_tiet_che += 1
+                cho = TIET_CHE_SLEEP[min(lan_tiet_che - 1, len(TIET_CHE_SLEEP) - 1)]
+                if self.tong_cho_tiet_che + cho > TIET_CHE_CHO_TOI_DA_GIAY:
+                    sys.exit(
+                        f"[TIẾT CHẾ] Đã nằm chờ hết ngân sách "
+                        f"{TIET_CHE_CHO_TOI_DA_GIAY // 60} phút mà TikTok vẫn tiết chế tại "
+                        f"{mo_ta_trang}: {error}\n"
+                        f"  Đã nhận {self.tom_tat_han_muc()}, trong đó nằm chờ "
+                        f"{int(self.tong_cho_tiet_che) // 60}m"
+                        f"{int(self.tong_cho_tiet_che) % 60:02d}s.\n"
+                        f"  BigQuery CHƯA bị thay đổi, dữ liệu cũ còn nguyên.\n"
+                        f"  Tiết chế thường bắt đầu quanh ~{NGUONG_TIET_CHE_UOC} request và "
+                        f"tự hết sau ~15 phút chờ. Chờ lâu hơn thế mà không hết thì cửa sổ "
+                        f"đang kéo rộng quá mức TikTok cho, hoặc phiên đang bị risk-control "
+                        f"thật.\n"
+                        f"  CÁCH SỬA — giảm SỐ REQUEST (chạy chậm lại không giúp gì):\n"
+                        f"    1. Tăng --page-size (100 -> 200/500) nếu TikTok nhận. Thử: "
+                        f"--date <1 ngày> --no-bq --page-size 500 rồi xem số trang.\n"
+                        f"    2. Thu hẹp --last-days, hoặc chia nhiều lát bằng --from/--to "
+                        f"(mỗi lát idempotent độc lập).\n"
+                        f"    3. Nếu nghi phiên hỏng: mở Seller Center bằng trình duyệt, "
+                        f"hoàn tất xác minh, cập nhật cookie rồi chạy lại với --no-bq."
+                    )
+                self.tong_cho_tiet_che += cho
+                log(f"    {mo_ta_trang}: TikTok tiết chế ({error}) — CHỜ {cho:g}s "
+                    f"(lần {lan_tiet_che}, đã chờ tổng {int(self.tong_cho_tiet_che)}s/"
+                    f"{TIET_CHE_CHO_TOI_DA_GIAY}s; KHÔNG đập browser — chuyện bình thường "
+                    f"sau ~{NGUONG_TIET_CHE_UOC} request)")
+                await self._cho(cho)
             except TrucTracTamThoi as error:
                 lan_thu += 1
                 if lan_thu > API_RETRY_TAI_CHO:
-                    sys.exit(f"[API] {mo_ta_trang}: hết {API_RETRY_TAI_CHO} lần retry: "
-                             f"{error}. DỪNG, KHÔNG đụng BigQuery; không restart browser.")
+                    # Hết retry tại chỗ mới leo thang lên dựng lại browser — cho thêm một
+                    # cơ hội trước khi bỏ cả run. Ngân sách restart vẫn chặn flap vô tận.
+                    await self._restart_browser(
+                        mo_ta_trang, f"{API_RETRY_TAI_CHO} lần lỗi API liên tiếp: {error}")
+                    lan_thu = 0
+                    continue
                 cho = API_RETRY_SLEEP[min(lan_thu - 1, len(API_RETRY_SLEEP) - 1)]
                 if error.retry_after is not None:
                     cho = max(cho, error.retry_after)
@@ -2058,8 +2166,15 @@ def main():
 
     log(f"shop {seller_id} | {d0} -> {d1} (giờ VN)")
     log(f"khoảng create_time UTC sẽ ghi đè: {utc0} -> {utc1}")
-    log(f"page_size={PAGE_SIZE} | {len(khoi_ngay)} khối; "
-        "số request không phải bằng chứng về hạn mức TikTok")
+    so_ngay_keo = (d1 - d0).days + 1
+    uoc_request = uoc_so_request(so_ngay_keo, PAGE_SIZE)
+    log(f"page_size={PAGE_SIZE} | {len(khoi_ngay)} khối | ước ~{uoc_request} request "
+        f"cho ~{DON_MOI_NGAY_UOC * so_ngay_keo:,} đơn (ước tính, không phải hạn mức)")
+    if uoc_request > NGUONG_TIET_CHE_UOC:
+        log(f"  ! LƯU Ý: ước {uoc_request} request, vượt mốc thường bị tiết chế "
+            f"(~{NGUONG_TIET_CHE_UOC}). Run này nhiều khả năng phải nằm chờ thêm ~15 phút "
+            f"giữa đường — vẫn về đích được, chỉ lâu hơn. Muốn hết chờ thì tăng "
+            f"--page-size (nếu TikTok nhận) hoặc giảm --last-days.")
     if not a.no_bq:
         log(f"BigQuery đích: {BQ_PROJECT}.{BQ_DATASET}.{BQ_TABLE}")
 
@@ -2102,6 +2217,8 @@ def main():
 if __name__ == "__main__":
     main()
 
-# if __name__ == "__main__":
-#     main()
+
+
+
+
 
