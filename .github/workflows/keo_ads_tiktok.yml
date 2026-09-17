@@ -27,7 +27,9 @@ jobs:
   keo:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # keo_cost_campaign_tiktok.py nằm ở gốc repo auto_run_python-.
+    # Tên file script ghi DUY NHẤT ở đây. Đổi tên file .py trên repo thì chỉ sửa dòng này.
+    env:
+      SCRIPT: keo_ads_tiktok_new.py
     steps:
       - uses: actions/checkout@v4
 
@@ -42,27 +44,30 @@ jobs:
       - name: Kiểm tra secrets
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          TIKTOK_COOKIE: ${{ secrets.TIKTOK_COOKIE_RHYSMAN }}
+          TIKTOK_COOKIE: ${{ secrets.COOKIE_ADS }}
         run: |
           if [ -z "$GOOGLE_SERVICE_ACCOUNT_JSON" ]; then echo "::error::Thiếu secret GOOGLE_SERVICE_ACCOUNT_JSON"; exit 1; fi
-          if [ -z "$TIKTOK_COOKIE" ]; then echo "::error::Thiếu secret TIKTOK_COOKIE_RHYSMAN"; exit 1; fi
+          if [ -z "$TIKTOK_COOKIE" ]; then echo "::error::Thiếu secret COOKIE_ADS"; exit 1; fi
 
       - name: Kéo chi phí 3 tài khoản ads -> BigQuery
         env:
           PYTHONUTF8: "1"
-          TIKTOK_COOKIE: ${{ secrets.TIKTOK_COOKIE_RHYSMAN }}
+          TIKTOK_COOKIE: ${{ secrets.COOKIE_ADS }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           LAST_DAYS: ${{ github.event.inputs.last_days || '3' }}
           DATE_FROM: ${{ github.event.inputs.date_from }}
           DATE_TO: ${{ github.event.inputs.date_to }}
         run: |
           set -euo pipefail
+          if [ ! -f "$SCRIPT" ]; then
+            echo "::error::Không thấy $SCRIPT ở gốc repo. Các file .py đang có:"; ls *.py; exit 1
+          fi
           if [ -n "${DATE_FROM:-}" ]; then
             if [ -n "${DATE_TO:-}" ]; then
-              python -u keo_ads_tiktok_new.py --from "$DATE_FROM" --to "$DATE_TO"
+              python -u "$SCRIPT" --from "$DATE_FROM" --to "$DATE_TO"
             else
-              python -u keo_ads_tiktok_new.py --from "$DATE_FROM"
+              python -u "$SCRIPT" --from "$DATE_FROM"
             fi
           else
-            python -u keo_ads_tiktok_new.py --last-days "$LAST_DAYS"
+            python -u "$SCRIPT" --last-days "$LAST_DAYS"
           fi
