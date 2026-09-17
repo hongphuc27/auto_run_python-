@@ -14,7 +14,7 @@ VÍ DỤ:
   py -X utf8 keo_cost_campaign_tiktok.py --last-days 3 --adv-id 7625589331687948309   # chỉ 1 tài khoản
 
 GitHub Actions (repo auto_run_python-, file .py đặt ở gốc repo), chỉ cần cài: pip install google-cloud-bigquery
-  - Cookie : env TIKTOK_COOKIE  <- secret TIKTOK_COOKIE_RHYSMAN
+  - Cookie : env TIKTOK_COOKIE  <- secret COOKIE_ADS
   - BigQuery: env GOOGLE_SERVICE_ACCOUNT_JSON <- secret cùng tên (JSON inline, không ghi ra file)
 Chạy ở máy: không có env thì đọc file --cookie (mặc định cookie_ads.txt) và dùng ADC (gcloud).
 
@@ -35,7 +35,7 @@ DEFAULT_ADV_IDS = ["7628879252477231124", "7625593030732709908", "76255893316879
 PAGE_SIZE = 100          # server chỉ phân trang theo 100 dù xin nhiều hơn -> giữ 100 cho khớp total_page
 WINDOW_DAYS = 31         # chia khoảng dài thành cửa sổ ≤31 ngày, mỗi cửa sổ tự đối chiếu tổng
 
-ENV_COOKIE = "TIKTOK_COOKIE"   # GitHub Actions: map từ secret TIKTOK_COOKIE_RHYSMAN
+ENV_COOKIE = "TIKTOK_COOKIE"   # GitHub Actions: map từ secret COOKIE_ADS
 
 BQ_PROJECT = os.environ.get("BQ_PROJECT_ID", "rhysman-data-warehouse-488306")
 BQ_DATASET = os.environ.get("BQ_DATASET", "rhysman")
@@ -70,7 +70,7 @@ def load_cookie(path):
     if "=" not in raw:                               # dán mỗi giá trị sessionid_ads
         return f"sessionid_ads={raw}"
     sys.exit(f"[CONFIG] cookie ở {source} KHÔNG có sessionid_ads — copy lại cookie từ một request tới "
-             f"ads.tiktok.com (đang đăng nhập) rồi cập nhật secret TIKTOK_COOKIE_RHYSMAN.")
+             f"ads.tiktok.com (đang đăng nhập) rồi cập nhật secret COOKIE_ADS.")
 
 
 # ─── TikTok API ──────────────────────────────────────────────────────────────
@@ -271,7 +271,7 @@ def main():
         records = fetch_all(cookie, adv_ids, d_from, d_to)
     except SessionExpired as e:
         sys.exit(f"[COOKIE] {e}\n  -> Đăng nhập ads.tiktok.com, copy lại cookie (có sessionid_ads) "
-                 f"vào secret TIKTOK_COOKIE_RHYSMAN rồi chạy lại.")
+                 f"vào secret COOKIE_ADS rồi chạy lại.")
 
     total = sum(Decimal(r["amount"]) for r in records)
     print(f"[DATA] {len(records)} dòng | tổng {total:,.0f} VND", flush=True)
