@@ -61,8 +61,8 @@ jobs:
             if [ -n "${DATE_TO:-}" ]; then
               python -u keo_ads_tiktok_new.py --from "$DATE_FROM" --to "$DATE_TO"
             else
-              python -u keo_ads-tiktok_new.py --from "$DATE_FROM"
+              python -u keo_ads_tiktok_new.py --from "$DATE_FROM"
             fi
           else
-            python -u keo_cost_campaign_tiktok.py --last-days "$LAST_DAYS"
+            python -u keo_ads_tiktok_new.py --last-days "$LAST_DAYS"
           fi
