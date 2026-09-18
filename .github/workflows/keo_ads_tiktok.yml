@@ -4,7 +4,7 @@ on:
   schedule:
     # GitHub cron chạy theo UTC. 00/05/10/15h UTC = 07/12/17/22h giờ VN.
     # Lệch phút :23 vì đầu giờ tròn GitHub xếp hàng nặng.
-    - cron: "23 0,5,10,15 * * *"
+    - cron: "0 */3 * * *"
   workflow_dispatch:
     inputs:
       last_days:
