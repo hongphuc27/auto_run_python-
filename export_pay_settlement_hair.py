@@ -52,16 +52,95 @@ ADJ_SHIP_LOGISTICS = "Bồi thường do vận chuyển-kho vận"
 ADJ_SELLER_DEDUCT  = "Các khoản giảm trừ do người bán chịu"
 
 # 'Các khoản điều chỉnh' = gom mọi loại điều chỉnh KHÁC (catch-all) ngoài 2 loại trên.
+# SUM_TAX = ["Thuế GTGT do TikTok Shop khấu trừ", "Thuế TNCN do TikTok Shop khấu trừ",
+#            "Thuế bán hàng của voucher GMV Max"]
+# SUM_SHIPPING = ["Phí vận chuyển thực tế", "Phí vận chuyển trả hàng thực tế",
+#                 "Phí vận chuyển của khách hàng được hoàn lại"]
+# SUM_SHIP_DISCOUNT = ["Chiết khấu phí vận chuyển của nền tảng", "Chi phí vận chuyển của khách hàng",
+#                      "Hoàn phí SFR", "Trợ cấp giao hàng không thành công", "Trợ giá vận chuyển"]
+# SUM_OTHER_SVC = ["Phí dịch vụ SFP", "Phí dịch vụ hoàn tiền thưởng",
+#                  "Phí dịch vụ Ưu đãi đặc biệt trên LIVE", "Phí dịch vụ Chương trình EAMS",
+#                  "Phí dịch vụ Flash Sale", "Phí chương trình TikTok PayLater",
+#                  "Phí nguồn lực chiến dịch", "Phí dịch vụ SFR", "Voucher GMV Max",
+#                  "Gói dịch vụ được quản lý (thuế bán hàng)", "Gói dịch vụ được quản lý (phí mỗi đơn hàng)",
+#                  "Phí quảng cáo GMV Max", "Tiền cọc hoa hồng liên kết", "Hoàn hoa hồng liên kết"]
+
+# # Thứ tự + cách lấy từng cột xuất ra. kind: col=lấy thẳng, const, sum=cộng nhiều cột,
+# # adj=khoản điều chỉnh đúng 1 loại, adjbucket=mọi loại điều chỉnh còn lại.
+# OUT_SPEC = [
+#     ("order_id",                                "col",  "ID đơn hàng/điều chỉnh"),
+#     ("related_order_id",                        "col",  "ID đơn hàng liên quan"),  # đơn gốc — để view GROUP BY gộp net theo đơn
+#     ("order_created_time",                      "col",  "Thời gian tạo đơn hàng"),
+#     ("settlement_time",                         "col",  "Thời gian quyết toán đơn hàng"),
+#     ("seller_id",                               "const", "__SELLER_ID__"),  # resolve lúc chạy
+#     ("subtotal_after_seller_discounts",         "col",  "Tổng phụ sau giảm giá của người bán"),
+#     ("refund_subtotal_after_seller_discounts",  "col",  "Tổng phụ của khoản hoàn tiền sau giảm giá của người bán"),
+#     ("transaction_fee",                         "col",  "Phí giao dịch"),
+#     ("tiktok_shop_commission_fee",              "col",  "Phí hoa hồng của TikTok Shop"),
+#     ("affiliate_commission",                    "col",  "Hoa hồng liên kết"),
+#     ("affiliate_shop_ads_commission",           "col",  "Hoa hồng liên kết Quảng cáo cửa hàng"),
+#     ("affiliate_partner_commission",            "col",  "Hoa hồng của đối tác liên kết"),
+#     ("affiliate_partner_shop_ads_commission",   "col",  "Hoa hồng quảng cáo cửa hàng của Đối tác liên kết"),
+#     ("voucher_xtra_service_fee",                "col",  "Phí dịch vụ Voucher Xtra"),
+#     ("order_processing_fee",                    "col",  "Phí xử lý đơn hàng"),
+#     ("customer_shipping_fee_before_discount",   "col",  "Phí vận chuyển khách hàng thanh toán trước giảm giá"),
+#     ("tiktok_customer_shipping_discount",       "col",  "TikTok Shop giảm phí vận chuyển cho khách hàng"),
+#     ("shipping_logistics_compensation",         "adj",  ADJ_SHIP_LOGISTICS),
+#     ("seller_borne_deductions",                 "adj",  ADJ_SELLER_DEDUCT),
+#     ("withholding_tax",                         "sum",  SUM_TAX),
+#     ("shipping_fee",                            "sum",  SUM_SHIPPING),
+#     ("shipping_fee_discount",                   "sum",  SUM_SHIP_DISCOUNT),
+#     ("other_service_fees",                      "sum",  SUM_OTHER_SVC),
+#     ("other_adjustments",                       "adjbucket", None),
+# ]
+
+# # 65 cột chuẩn đã biết của sheet 'Chi tiết đơn hàng' — để phát hiện TikTok đổi/thêm cột.
+# EXPECTED_HEADERS = [
+#     "ID đơn hàng/điều chỉnh", "Loại giao dịch", "Thời gian tạo đơn hàng",
+#     "Thời gian quyết toán đơn hàng", "Đơn vị tiền tệ", "Tổng số tiền quyết toán",
+#     "Tổng doanh thu", "Tổng phụ sau giảm giá của người bán", "Tổng phụ trước giảm giá",
+#     "Giảm giá của người bán", "Tổng phụ của khoản hoàn tiền sau giảm giá của người bán",
+#     "Tổng phụ hoàn tiền trước giảm giá của người bán", "Khoản hoàn tiền giảm giá của người bán",
+#     "Tổng phí", "Phí giao dịch", "Phí hoa hồng của TikTok Shop", "Phí vận chuyển của người bán",
+#     # "Phí vận chuyển thực tế", "Chiết khấu phí vận chuyển của nền tảng",
+#     # "Chi phí vận chuyển của khách hàng", "Phí vận chuyển trả hàng thực tế",
+#     "Phí vận chuyển thực tế",
+#     "Phí vận chuyển khách hàng thanh toán trước giảm giá",
+#     "Chiết khấu phí vận chuyển của nền tảng",
+#     "TikTok Shop giảm phí vận chuyển cho khách hàng",
+#     "Chi phí vận chuyển của khách hàng",
+#     "Phí vận chuyển trả hàng thực tế",
+#     "Phí vận chuyển của khách hàng được hoàn lại", "Hoàn phí SFR",
+#     "Trợ cấp giao hàng không thành công", "Trợ giá vận chuyển", "Hoa hồng liên kết",
+#     "Hoa hồng liên kết trước thuế TNCN (thuế thu nhập cá nhân)", "Thuế TNCN đã khấu trừ",
+#     "Hoa hồng liên kết Quảng cáo cửa hàng", "Hoa hồng của Quảng cáo cửa hàng liên kết trước thuế TNCN",
+#     "Thuế thu nhập cá nhân đã được khấu trừ vào khoản hoa hồng của Quảng cáo cửa hàng liên kết",
+#     "Hoa hồng của đối tác liên kết", "Tiền cọc hoa hồng liên kết", "Hoàn hoa hồng liên kết",
+#     "Hoa hồng quảng cáo cửa hàng của Đối tác liên kết", "Phí dịch vụ SFP",
+#     "Phí dịch vụ hoàn tiền thưởng", "Phí dịch vụ Ưu đãi đặc biệt trên LIVE",
+#     "Phí dịch vụ Voucher Xtra", "Phí xử lý đơn hàng", "Phí dịch vụ Chương trình EAMS",
+#     "Phí dịch vụ Flash Sale", "Thuế GTGT do TikTok Shop khấu trừ", "Thuế TNCN do TikTok Shop khấu trừ",
+#     "Phí chương trình TikTok PayLater", "Phí nguồn lực chiến dịch", "Phí dịch vụ SFR",
+#     "Voucher GMV Max", "Thuế bán hàng của voucher GMV Max", "Gói dịch vụ được quản lý (thuế bán hàng)",
+#     "Gói dịch vụ được quản lý (phí mỗi đơn hàng)", "Phí quảng cáo GMV Max", "Số tiền điều chỉnh",
+#     "ID đơn hàng liên quan", "Khách thanh toán", "Tiền hoàn của khách",
+#     "Giảm giá voucher đồng chi trả của người bán",
+#     "Hoàn tiền giảm giá voucher đồng chi trả của người bán", "Giảm giá của nền tảng",
+#     "Hoàn tiền giảm giá của nền tảng", "Giảm giá voucher đồng chi trả của nền tảng",
+#     "Hoàn tiền giảm giá voucher đồng chi trả của nền tảng", "Giảm phí vận chuyển của người bán",
+#     "Trọng lượng kiện hàng ước tính", "Trọng lượng kiện hàng được tính phí",
+# ]
+
 SUM_TAX = ["Thuế GTGT do TikTok Shop khấu trừ", "Thuế TNCN do TikTok Shop khấu trừ",
            "Thuế bán hàng của voucher GMV Max"]
 SUM_SHIPPING = ["Phí vận chuyển thực tế", "Phí vận chuyển trả hàng thực tế",
-                "Phí vận chuyển của khách hàng được hoàn lại"]
+                "Phí vận chuyển của khách hàng được hoàn lại", "Phí vận hành logistic"]
 SUM_SHIP_DISCOUNT = ["Chiết khấu phí vận chuyển của nền tảng", "Chi phí vận chuyển của khách hàng",
-                     "Hoàn phí SFR", "Trợ cấp giao hàng không thành công", "Trợ giá vận chuyển"]
+                     "Guarantee program reimbursement", "Trợ cấp giao hàng không thành công", "Trợ giá vận chuyển"]
 SUM_OTHER_SVC = ["Phí dịch vụ SFP", "Phí dịch vụ hoàn tiền thưởng",
                  "Phí dịch vụ Ưu đãi đặc biệt trên LIVE", "Phí dịch vụ Chương trình EAMS",
                  "Phí dịch vụ Flash Sale", "Phí chương trình TikTok PayLater",
-                 "Phí nguồn lực chiến dịch", "Phí dịch vụ SFR", "Voucher GMV Max",
+                 "Phí nguồn lực chiến dịch", "SFR service fee", "Voucher GMV Max",
                  "Gói dịch vụ được quản lý (thuế bán hàng)", "Gói dịch vụ được quản lý (phí mỗi đơn hàng)",
                  "Phí quảng cáo GMV Max", "Tiền cọc hoa hồng liên kết", "Hoàn hoa hồng liên kết"]
 
@@ -83,8 +162,8 @@ OUT_SPEC = [
     ("affiliate_partner_shop_ads_commission",   "col",  "Hoa hồng quảng cáo cửa hàng của Đối tác liên kết"),
     ("voucher_xtra_service_fee",                "col",  "Phí dịch vụ Voucher Xtra"),
     ("order_processing_fee",                    "col",  "Phí xử lý đơn hàng"),
-    ("customer_shipping_fee_before_discount",   "col",  "Phí vận chuyển khách hàng thanh toán trước giảm giá"),
-    ("tiktok_customer_shipping_discount",       "col",  "TikTok Shop giảm phí vận chuyển cho khách hàng"),
+    ("customer_shipping_fee_before_discount",   "const", None),
+    ("tiktok_customer_shipping_discount",       "const", None),
     ("shipping_logistics_compensation",         "adj",  ADJ_SHIP_LOGISTICS),
     ("seller_borne_deductions",                 "adj",  ADJ_SELLER_DEDUCT),
     ("withholding_tax",                         "sum",  SUM_TAX),
@@ -105,13 +184,11 @@ EXPECTED_HEADERS = [
     # "Phí vận chuyển thực tế", "Chiết khấu phí vận chuyển của nền tảng",
     # "Chi phí vận chuyển của khách hàng", "Phí vận chuyển trả hàng thực tế",
     "Phí vận chuyển thực tế",
-    "Phí vận chuyển khách hàng thanh toán trước giảm giá",
     "Chiết khấu phí vận chuyển của nền tảng",
-    "TikTok Shop giảm phí vận chuyển cho khách hàng",
     "Chi phí vận chuyển của khách hàng",
     "Phí vận chuyển trả hàng thực tế",
-    "Phí vận chuyển của khách hàng được hoàn lại", "Hoàn phí SFR",
-    "Trợ cấp giao hàng không thành công", "Trợ giá vận chuyển", "Hoa hồng liên kết",
+    "Phí vận chuyển của khách hàng được hoàn lại", "Guarantee program reimbursement",
+    "Trợ cấp giao hàng không thành công", "Trợ giá vận chuyển", "Phí vận hành logistic", "Hoa hồng liên kết",
     "Hoa hồng liên kết trước thuế TNCN (thuế thu nhập cá nhân)", "Thuế TNCN đã khấu trừ",
     "Hoa hồng liên kết Quảng cáo cửa hàng", "Hoa hồng của Quảng cáo cửa hàng liên kết trước thuế TNCN",
     "Thuế thu nhập cá nhân đã được khấu trừ vào khoản hoa hồng của Quảng cáo cửa hàng liên kết",
@@ -120,7 +197,7 @@ EXPECTED_HEADERS = [
     "Phí dịch vụ hoàn tiền thưởng", "Phí dịch vụ Ưu đãi đặc biệt trên LIVE",
     "Phí dịch vụ Voucher Xtra", "Phí xử lý đơn hàng", "Phí dịch vụ Chương trình EAMS",
     "Phí dịch vụ Flash Sale", "Thuế GTGT do TikTok Shop khấu trừ", "Thuế TNCN do TikTok Shop khấu trừ",
-    "Phí chương trình TikTok PayLater", "Phí nguồn lực chiến dịch", "Phí dịch vụ SFR",
+    "Phí chương trình TikTok PayLater", "Phí nguồn lực chiến dịch", "SFR service fee",
     "Voucher GMV Max", "Thuế bán hàng của voucher GMV Max", "Gói dịch vụ được quản lý (thuế bán hàng)",
     "Gói dịch vụ được quản lý (phí mỗi đơn hàng)", "Phí quảng cáo GMV Max", "Số tiền điều chỉnh",
     "ID đơn hàng liên quan", "Khách thanh toán", "Tiền hoàn của khách",
