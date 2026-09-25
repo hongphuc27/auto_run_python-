@@ -1105,6 +1105,7 @@ CREATORS = {
     "rhysman.com": "Rhys Man Chính Hãng",
     "rhysman.shopping": "Rhys Man",
     "rhysman_channel": "Rhys Man Chăm Sóc Cơ Thể",
+    "rhysman.gifts": "Quà Tặng Anh"
 }
 
 SALE_SOURCE_TO_POSITION = {"1": 3, "2": 2, "3": 1}
