@@ -20,7 +20,7 @@ on:
       page_size:
         description: "Số đơn mỗi request. 100 là mức đã biết chắc chạy được; thử 500 để bỏ hẳn tiết chế."
         required: false
-        default: "100"
+        default: "500"
       skip_total_check:
         description: "Bỏ đối chiếu total_count của TikTok (chỉ khi biết chắc TikTok báo sai)"
         required: false
@@ -76,7 +76,7 @@ jobs:
           LAST_DAYS: ${{ github.event.inputs.last_days || '30' }}
           DATE_FROM: ${{ github.event.inputs.date_from }}
           DATE_TO: ${{ github.event.inputs.date_to }}
-          PAGE_SIZE: ${{ github.event.inputs.page_size || '100' }}
+          PAGE_SIZE: ${{ github.event.inputs.page_size || '500' }}
           SKIP_TOTAL: ${{ github.event.inputs.skip_total_check }}
           DEADLINE: ${{ github.event.inputs.deadline_phut || '60' }}
         run: |
