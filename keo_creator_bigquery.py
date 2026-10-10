@@ -382,6 +382,7 @@ PROTECTED_CREATORS = {
     "rhysman.com",
     "rhysman.shopping",
     "rhysman_channel",
+    "rhysman.gifts",
 }
 
 # cos_ratio/standard_cos_ratio trả về dạng "13%". Để False -> lưu số 13.
