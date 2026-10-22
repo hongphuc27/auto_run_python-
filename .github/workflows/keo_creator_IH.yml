@@ -1,3 +1,97 @@
+# name: TikTok Creator Sync IH
+
+# on:
+#   schedule:
+#     # Mỗi 2 giờ, luôn 30 ngày. Lệch khỏi phút :00 vì GitHub xếp hàng rất nặng ở đầu giờ
+#     # tròn; chạy lệch phút thì được cấp runner sớm hơn.
+#     - cron: "17 */2 * * *"
+#   workflow_dispatch:
+#     inputs:
+#       last_days:
+#         description: "Kéo N ngày gần nhất (tính cả hôm nay)"
+#         required: false
+#         default: "30"
+#       date_from:
+#         description: "Backfill từ ngày YYYY-MM-DD (đi kèm date_to)"
+#         required: false
+#       date_to:
+#         description: "Backfill đến ngày YYYY-MM-DD"
+#         required: false
+#       page_size:
+#         description: "Số đơn mỗi request. 100 là mức đã biết chắc chạy được; thử 500 để bỏ hẳn tiết chế."
+#         required: false
+#         default: "500"
+#       skip_total_check:
+#         description: "Bỏ đối chiếu total_count của TikTok (chỉ khi biết chắc TikTok báo sai)"
+#         required: false
+#         type: boolean
+#         default: false
+#       deadline_phut:
+#         description: "Trần thời gian cả run, 0 = tắt. ĐỪNG hạ dưới 50 khi page_size còn 100."
+#         required: false
+#         default: "60"
+
+# # Backfill dài chạy đè lên cron 2 tiếng sẽ có 2 run cùng DELETE+INSERT một khoảng ngày.
+# # Transaction bên BigQuery sẽ huỷ một cái, nhưng xếp hàng ở đây thì sạch hơn.
+# concurrency:
+#   group: tiktok-creator-sync
+#   cancel-in-progress: false
+
+# jobs:
+#   keo:
+#     runs-on: ubuntu-latest
+#     # Cao hơn --deadline-phut để deadline của script luôn bắn TRƯỚC. Đọc phần CẢNH BÁO
+#     # ở đầu file trước khi hạ con số này.
+#     timeout-minutes: 70
+#     # KHÔNG đặt working-directory: keo_creator_IH.py nằm ở gốc repo auto_run_python-.
+#     steps:
+#       - uses: actions/checkout@v4
+
+#       - uses: actions/setup-python@v5
+#         with:
+#           python-version: "3.12"
+
+#       # Playwright gọi API từ trong một trang cùng origin với Seller Center, và có thể
+#       # dựng lại toàn bộ Chromium tại đúng cursor đang dở.
+#       # 1.58.0 là bản đã chạy 108 assert của test_offline.py; 1.49.0 chưa ai test.
+#       - name: Cài thư viện
+#         run: |
+#           pip install --quiet google-cloud-bigquery playwright==1.58.0
+#           python -m playwright install --with-deps chromium
+
+#       - name: Kiểm tra secrets
+#         env:
+#           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+#           TIKTOK_COOKIE: ${{ secrets.TIKTOK_COOKIE_RHYSMAN }}
+#         run: |
+#           if [ -z "$GOOGLE_SERVICE_ACCOUNT_JSON" ]; then echo "::error::Thiếu secret GOOGLE_SERVICE_ACCOUNT_JSON"; exit 1; fi
+#           if [ -z "$TIKTOK_COOKIE" ]; then echo "::error::Thiếu secret TIKTOK_COOKIE_RHYSMAN"; exit 1; fi
+
+#       # Cả cookie lẫn service account đều truyền thẳng qua biến môi trường,
+#       # KHÔNG ghi ra file. Đổi credentials = sửa mỗi secret, không đụng code.
+#       - name: Kéo dữ liệu creator
+#         env:
+#           TIKTOK_COOKIE: ${{ secrets.TIKTOK_COOKIE_RHYSMAN }}
+#           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+#           LAST_DAYS: ${{ github.event.inputs.last_days || '30' }}
+#           DATE_FROM: ${{ github.event.inputs.date_from }}
+#           DATE_TO: ${{ github.event.inputs.date_to }}
+#           PAGE_SIZE: ${{ github.event.inputs.page_size || '500' }}
+#           SKIP_TOTAL: ${{ github.event.inputs.skip_total_check }}
+#           DEADLINE: ${{ github.event.inputs.deadline_phut || '60' }}
+#         run: |
+#           set -euo pipefail
+#           FLAGS="--deadline-phut $DEADLINE --page-size $PAGE_SIZE"
+#           if [ "${SKIP_TOTAL:-}" = "true" ]; then FLAGS="$FLAGS --skip-total-check"; fi
+#           if [ -n "${DATE_FROM:-}" ] && [ -n "${DATE_TO:-}" ]; then
+#             python keo_creator_IH.py --from "$DATE_FROM" --to "$DATE_TO" $FLAGS
+#           else
+#             python keo_creator_IH.py --last-days "$LAST_DAYS" $FLAGS
+#           fi
+
+
+
+
 name: TikTok Creator Sync IH
 
 on:
@@ -39,7 +133,7 @@ concurrency:
 
 jobs:
   keo:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Cao hơn --deadline-phut để deadline của script luôn bắn TRƯỚC. Đọc phần CẢNH BÁO
     # ở đầu file trước khi hạ con số này.
     timeout-minutes: 70
