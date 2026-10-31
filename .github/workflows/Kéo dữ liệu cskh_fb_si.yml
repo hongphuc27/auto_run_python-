@@ -1,3 +1,41 @@
+# name: Kéo dữ liệu cskh_fb_si
+
+# on:
+#   schedule:
+#     - cron: "*/40 * * * *"   # chạy mỗi 40 phút
+
+#   workflow_dispatch:
+
+# jobs:
+#   run:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - uses: actions/checkout@v4
+
+#       - uses: actions/setup-python@v5
+#         with:
+#           python-version: "3.11"
+
+#       - name: Install dependencies
+#         run: |
+#           python -m pip install --upgrade pip
+#           pip install -r requirements.txt
+
+#       - name: Create Google credential file
+#         run: |
+#           echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > google_key.json
+      
+#       - name: Set Google Credentials
+#         run: echo "GOOGLE_APPLICATION_CREDENTIALS=google_key.json" >> $GITHUB_ENV
+      
+#       - name: Run Python
+#         run: |
+#           python report_linh.py
+#           python report_linhOA.py
+          
+
+
 name: Kéo dữ liệu cskh_fb_si
 
 on:
@@ -6,9 +44,15 @@ on:
 
   workflow_dispatch:
 
+# lần trước chưa chạy xong thì lần sau chờ, không ghi đè nhau
+concurrency:
+  group: keo-du-lieu-cskh-fb-si
+  cancel-in-progress: false
+
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -25,12 +69,22 @@ jobs:
       - name: Create Google credential file
         run: |
           echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > google_key.json
-      
+
       - name: Set Google Credentials
         run: echo "GOOGLE_APPLICATION_CREDENTIALS=google_key.json" >> $GITHUB_ENV
-      
-      - name: Run Python
-        run: |
-          python report_linh.py
-          python report_linhOA.py
-          
+
+      - name: fact_fb_zalo_si (API Pancake)
+        env:
+          POS_API_KEY: ${{ secrets.POS_API_KEY }}
+        run: python report_linh.py --write
+
+      # chạy cả khi bước trên lỗi, để bảng ZaloOA vẫn được nạp
+      - name: fact_cskhzaloOA
+        if: ${{ !cancelled() }}
+        run: python report_linhOA.py
+
+
+
+
+
+
