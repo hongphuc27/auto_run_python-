@@ -181,6 +181,7 @@ SCHEMA = [
 
 
 RETRY_WAITS = [10, 30, 60, 120]  # giây; TikTok thỉnh thoảng trả code 1300400001 "Couldn't load" khi gọi liên tục
+DAY_TRIES = 3  # ngày đang chạy: chi phí tăng giữa lúc gọi creative và lúc gọi campaign → gọi lại ngày đó
 
 
 class TikTokAuthError(RuntimeError):
@@ -260,6 +261,29 @@ def fetch_all(session, url, headers, base_body, day, level, metrics):
         page += 1
         time.sleep(1)
     return rows
+
+
+def cost_of(rows):
+    return sum(float(r["row_data"]["stat_cost"] or 0) for r in rows)
+
+
+def fetch_day(session, url, headers, base_body, day):
+    """Creative + campaign của 1 ngày; tổng chi phí creative phải khớp cấp campaign. Ngày đang chạy chi phí tăng giữa các
+    lần gọi → gọi lại, chấp nhận khi chi phí creative nằm giữa chi phí campaign lần gọi trước và lần gọi ngay sau
+    (chi phí trong ngày chỉ tăng; thiếu creative thật thì vẫn lệch). Trả (creatives, camps, chi phí campaign lần trước)."""
+    prev = None
+    for attempt in range(1, DAY_TRIES + 1):
+        creatives = fetch_all(session, url, headers, base_body, day, "creative",
+                              [m[0] for m in METRICS] + EXTRA_METRICS)
+        camps = fetch_all(session, url, headers, base_body, day, "campaign", ["stat_cost", "show_uv"])
+        cr, hi = round(cost_of(creatives)), round(cost_of(camps))
+        lo = hi if prev is None else round(cost_of(prev))
+        if lo <= cr <= hi:
+            return creatives, camps, lo
+        print(f"    {day}: chi phí cấp creative {cr:,} ngoài khoảng cấp campaign {lo:,} – {hi:,} "
+              f"(lần {attempt}/{DAY_TRIES})", flush=True)
+        prev = camps
+    raise SystemExit(f"Chi phí ngày {day} lệch cấp campaign sau {DAY_TRIES} lần gọi — dừng, không ghi")
 
 
 def video_id(cr):
@@ -435,20 +459,17 @@ def main():
     rows, day = [], start
     try:
         while day <= end:
-            creatives = fetch_all(session, url, headers, base_body, day, "creative",
-                                  [m[0] for m in METRICS] + EXTRA_METRICS)
-            camps = fetch_all(session, url, headers, base_body, day, "campaign", ["stat_cost", "show_uv"])
+            creatives, camps, camp_before = fetch_day(session, url, headers, base_body, day)
             campaign_reach = {str(c["campaign_id"]): conv(c["row_data"].get("show_uv"), "cnt") for c in camps}
             day_rows = sorted((to_bq_row(c, day, advertiser_id, campaign_reach) for c in creatives),
                               key=lambda r: -float(r["cost"] or 0))
             cr_cost = sum(float(r["cost"] or 0) for r in day_rows)
-            camp_cost = sum(float(c["row_data"]["stat_cost"] or 0) for c in camps)
+            camp_cost = cost_of(camps)
             active = sum(1 for r in day_rows if float(r["cost"] or 0) > 0)
             deleted = sum(1 for r in day_rows if r["status"] == "Deleted")
+            moving = f" (lần gọi trước {camp_before:,})" if camp_before != round(camp_cost) else ""
             print(f"  {day}: {len(day_rows)} creative ({deleted} đã xóa, {active} có chi phí)"
-                  f" | chi phí cấp creative {cr_cost:,.0f} | cấp campaign {camp_cost:,.0f}")
-            if round(cr_cost) != round(camp_cost):
-                raise SystemExit(f"Chi phí ngày {day} lệch cấp campaign — dừng, không ghi")
+                  f" | chi phí cấp creative {cr_cost:,.0f} | cấp campaign {camp_cost:,.0f}{moving}", flush=True)
             rows += day_rows
             day += timedelta(days=1)
     except TikTokAuthError as e:
