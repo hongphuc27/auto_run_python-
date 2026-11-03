@@ -1,0 +1,46 @@
+name: TikTok Ads -> BigQuery
+
+on:
+  schedule:
+    - cron: "17 0 * * *" # 07:17 giờ Việt Nam mỗi ngày (cron của GitHub tính theo UTC)
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Ngày bắt đầu YYYY-MM-DD (để trống = campaign 2 ngày, creative 5 ngày gần nhất)"
+        required: false
+      end:
+        description: "Ngày kết thúc YYYY-MM-DD (để trống = bằng ngày bắt đầu)"
+        required: false
+
+concurrency:
+  group: tiktok-ads-to-bq
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TIKTOK_COOKIE: ${{ secrets.COOKIE_ADS }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      START: ${{ inputs.start }}
+      END: ${{ inputs.end }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install google-cloud-bigquery requests
+
+      - name: Creative -> fact_tiktok_ads_creative
+        if: ${{ !cancelled() }} # bước campaign lỗi vẫn chạy bước này
+        run: |
+          ARGS=(--write)
+          if [ -n "$START" ]; then ARGS+=(--start "$START"); fi
+          if [ -n "$END" ]; then ARGS+=(--end "$END"); fi
+          python metrics_brand_MKT.py "${ARGS[@]}"
