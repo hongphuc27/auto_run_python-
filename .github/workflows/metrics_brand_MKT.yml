@@ -1,4 +1,4 @@
-name: TikTok Ads -> BigQuery
+name: metrics_brand_MKT
 
 on:
   schedule:
