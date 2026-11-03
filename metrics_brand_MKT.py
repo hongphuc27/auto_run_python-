@@ -11,6 +11,9 @@ GOOGLE_SERVICE_ACCOUNT_JSON.
 Campaign Smart+ bản mới: "Ad group" trên giao diện = ad_id trong API, "Ad" trên giao diện = creative_id trong API.
 Tên cột theo giao diện: adgroup_id / adgroup_name = API ad_id / ad_name; ad_id / ad_name = API creative_id / creative_name.
 
+Cột campaign_reach = Reach của cả campaign trong ngày (lấy ở tab Campaign, cùng lượt gọi kiểm chi phí): Reach không cộng
+từ creative được, báo cáo cấp campaign dùng cột này.
+
 Lấy creative ở mọi trạng thái, kể cả đã xóa (Deleted). Mỗi lần chạy: xóa rồi nạp lại 5 ngày gần nhất
 (hôm nay + 4 ngày trước, giờ VN) trong 1 transaction; --start/--end để chạy khoảng ngày khác.
 Mặc định chỉ chạy thử (kéo + kiểm, không ghi gì). Ghi BigQuery phải thêm --write.
@@ -168,7 +171,13 @@ SCHEMA = [
     F("status", "STRING", description="Cột Status trên TikTok Ads: Active / Not delivered / Paused / Deleted "
                                       "(API creative_platform_status), tại lần kéo dữ liệu gần nhất của ngày đó"),
 ] + [F(COL[k], BQ_TYPE[kind], description=f"{vi}{UNIT.get(kind, '')}. TikTok Ads: {ui}. API: {k}")
-     for k, kind, vi, ui in METRICS]  # 63 cột chỉ số: cùng tên, kiểu, mô tả với bảng campaign
+     for k, kind, vi, ui in METRICS] + [  # 63 cột chỉ số: cùng tên, kiểu, mô tả với bảng campaign
+    F("campaign_reach", "INTEGER",
+      description="Reach của cả campaign trong ngày (tab Campaign trên TikTok Ads, API show_uv cấp campaign), lặp lại "
+                  "trên mọi dòng creative của campaign. Reach không cộng từ creative được (1 người xem nhiều creative "
+                  "bị đếm nhiều lần): tính Reach / Frequency / Cost per 1,000 people reached của campaign dùng cột này, "
+                  "lấy 1 giá trị cho mỗi campaign × ngày."),
+]
 
 
 RETRY_WAITS = [10, 30, 60, 120]  # giây; TikTok thỉnh thoảng trả code 1300400001 "Couldn't load" khi gọi liên tục
@@ -273,7 +282,7 @@ def conv(v, kind):
     return f
 
 
-def to_bq_row(cr, day, advertiser_id):
+def to_bq_row(cr, day, advertiser_id, campaign_reach):
     rd = cr["row_data"]
     missing = [k for k, *_ in METRICS if k not in rd]
     if missing:
@@ -295,6 +304,7 @@ def to_bq_row(cr, day, advertiser_id):
         "status": STATUS.get(rd.get("creative_platform_status"), f"Khác (mã {rd.get('creative_platform_status')})"),
     }
     row.update({COL[k]: conv(rd[k], kind) for k, kind, *_ in METRICS})
+    row["campaign_reach"] = campaign_reach.get(str(cr["campaign_id"]))
     return row
 
 
@@ -370,7 +380,7 @@ def write_excel(rows, path):
             ("adgroup_name", "Ad group name", None), ("ad_id", "Ad ID", "@"), ("ad_name", "Ad name", None),
             ("video_id", "Video ID", "@"), ("post_text", "Post text", None), ("source", "Source", None),
             ("on_off", "On/Off", None), ("status", "Status", None)]
-    cols += [(COL[k], ui, fmt[kind]) for k, kind, _, ui in METRICS]
+    cols += [(COL[k], ui, fmt[kind]) for k, kind, _, ui in METRICS] + [("campaign_reach", "Campaign reach", "#,##0")]
     vnd_cols = {COL[k] for k, kind, *_ in METRICS if kind == "vnd"}
     wide = {"Campaign name": 32, "Ad group name": 28, "Ad name": 45, "Post text": 45, "Video ID": 36}
     wb = Workbook()
@@ -427,8 +437,9 @@ def main():
         while day <= end:
             creatives = fetch_all(session, url, headers, base_body, day, "creative",
                                   [m[0] for m in METRICS] + EXTRA_METRICS)
-            camps = fetch_all(session, url, headers, base_body, day, "campaign", ["stat_cost"])
-            day_rows = sorted((to_bq_row(c, day, advertiser_id) for c in creatives),
+            camps = fetch_all(session, url, headers, base_body, day, "campaign", ["stat_cost", "show_uv"])
+            campaign_reach = {str(c["campaign_id"]): conv(c["row_data"].get("show_uv"), "cnt") for c in camps}
+            day_rows = sorted((to_bq_row(c, day, advertiser_id, campaign_reach) for c in creatives),
                               key=lambda r: -float(r["cost"] or 0))
             cr_cost = sum(float(r["cost"] or 0) for r in day_rows)
             camp_cost = sum(float(c["row_data"]["stat_cost"] or 0) for c in camps)
