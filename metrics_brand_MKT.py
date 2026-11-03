@@ -1,7 +1,12 @@
 """TikTok Ads cấp creative theo ngày -> BigQuery fact_tiktok_ads_creative (hoặc Excel).
-Giống tab Ad trên Ads Manager ("Total of N creatives"). Dùng chung cookie (env TIKTOK_COOKIE <- secret COOKIE_ADS),
-key BigQuery (env GOOGLE_SERVICE_ACCOUNT_JSON) và cách gọi API của tiktok_ads_to_bq.py (đặt cùng thư mục),
-đổi sang statistics/op/ad/list/ với dimensions = creative_id, mỗi ngày gọi st = et = ngày đó.
+File chạy một mình, không cần file nào khác. Giống tab Ad trên Ads Manager ("Total of N creatives"):
+statistics/op/ad/list/ với dimensions = creative_id, mỗi ngày gọi st = et = ngày đó.
+
+GitHub Actions (file .py đặt ở gốc repo, chỉ cần cài: pip install google-cloud-bigquery requests):
+  - Cookie  : env TIKTOK_COOKIE <- secret COOKIE_ADS (cả chuỗi cookie). Hết hạn (~3 ngày) thì cập nhật secret, không sửa code.
+  - BigQuery: env GOOGLE_SERVICE_ACCOUNT_JSON <- secret cùng tên (JSON inline, không ghi ra file).
+Chạy ở máy: đặt env TIKTOK_COOKIE (PowerShell: $env:TIKTOK_COOKIE = '...'); BigQuery dùng ADC (gcloud) nếu không có
+GOOGLE_SERVICE_ACCOUNT_JSON.
 
 Campaign Smart+ bản mới: "Ad group" trên giao diện = ad_id trong API, "Ad" trên giao diện = creative_id trong API.
 Tên cột theo giao diện: adgroup_id / adgroup_name = API ad_id / ad_name; ad_id / ad_name = API creative_id / creative_name.
@@ -18,6 +23,7 @@ Mặc định chỉ chạy thử (kéo + kiểm, không ghi gì). Ghi BigQuery p
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import uuid
@@ -26,14 +32,122 @@ from datetime import date, datetime, timedelta, timezone
 import requests
 from google.cloud import bigquery
 
-import tiktok_ads_to_bq as t
-
 TABLE = os.environ.get("BQ_TABLE_CREATIVE",
                        "rhysman-data-warehouse-488306.rhysman_bigcampaigns.fact_tiktok_ads_creative")
 DAYS = 5
 EXTRA_METRICS = ["creative_platform_status", "material_primary_source", "material_secondary_source"]
+
+# ---------------------------------------------------------------- Cấu hình chung (giữ giống tiktok_ads_to_bq.py)
+VN_TZ = timezone(timedelta(hours=7))
+ENV_COOKIE = "TIKTOK_COOKIE"  # GitHub Actions: map từ secret COOKIE_ADS
+ADVERTISER_ID = os.environ.get("TIKTOK_ADVERTISER_ID", "7625589331687948309")  # aadvid trên URL Ads Manager
+API_URL = "https://ads.tiktok.com/api/v4/i18n/statistics/op/campaign/list/"
+USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+              "Chrome/156.0.0.0 Safari/537.36")
+# Body như trang Campaign của Ads Manager gửi; st / et / page / filters / metrics điền lúc gọi.
+BASE_BODY = {
+    "common_req": {"lifetime": 0, "compare_st": "", "compare_et": "", "sort_stat": "create_time", "sort_order": 1,
+                   "dimensions": ["campaign_id"], "page_size": 20},
+    "workflow_card": {"type": "0"},
+    "extra": {"get_compare_value": "0", "get_compare_rate": "0", "get_compare_diff": "0",
+              "scene": "campaign_list_v2", "list_version": "v2", "page_view_scene": "view_non_first",
+              "region_schedule": "1", "ab_primary_status": "v2", "enable_status_action": 1},
+}
+
+# 63 chỉ số: 44 cột đầu đúng thứ tự cột J..BA của file Excel, các cột thêm sau. (tên API, kiểu, ý nghĩa, tên trên TikTok Ads)
+# kiểu: vnd -> NUMERIC, cnt -> INTEGER, pct -> FLOAT dạng thập phân (API trả 2.56 = 2,56%), ratio -> FLOAT
+METRICS = [
+    ("stat_cost", "vnd", "Chi phí đã tiêu", "Cost"),
+    ("cpc", "vnd", "Chi phí trung bình mỗi click", "CPC (destination)"),
+    ("cpm", "vnd", "Chi phí cho 1.000 lượt hiển thị", "CPM"),
+    ("show_cnt", "cnt", "Lượt hiển thị", "Impressions"),
+    ("click_cnt", "cnt", "Lượt click", "Clicks (destination)"),
+    ("ctr", "pct", "Tỉ lệ click = Clicks / Impressions", "CTR (destination)"),
+    ("time_attr_convert_cnt", "cnt", "Số chuyển đổi (theo thời điểm chuyển đổi)", "Conversions (conversion time)"),
+    ("skan_convert_cnt", "cnt", "Chuyển đổi iOS SKAdNetwork", "SKAN conversions"),
+    ("time_attr_conversion_cost", "vnd", "Chi phí / chuyển đổi (theo thời điểm chuyển đổi)", "Cost per conversion (conversion time)"),
+    ("skan_conversion_cost", "vnd", "Chi phí / chuyển đổi SKAN", "SKAN cost per conversion"),
+    ("time_attr_conversion_rate", "pct", "Tỉ lệ chuyển đổi trên click", "CVR (conversion time)"),
+    ("time_attr_conversion_rate_imp", "pct", "Tỉ lệ chuyển đổi trên hiển thị", "CVR impression (conversion time)"),
+    ("skan_conversion_rate", "pct", "Tỉ lệ chuyển đổi SKAN (trên click)", "SKAN CVR"),
+    ("skan_conversion_rate_imp", "pct", "Tỉ lệ chuyển đổi SKAN (trên hiển thị)", "SKAN CVR (impression)"),
+    ("time_attr_effect_cnt", "cnt", "Kết quả theo mục tiêu tối ưu", "Results (conversion time)"),
+    ("time_attr_effect_cost", "vnd", "Chi phí / kết quả", "Cost per result (conversion time)"),
+    ("time_attr_effect_rate", "pct", "Tỉ lệ kết quả", "Result rate (conversion time)"),
+    ("time_attr_deep_convert_cnt_v2", "cnt", "Chuyển đổi sâu", "Deep conversions (conversion time)"),
+    ("time_attr_cost_per_deep_convert_v2", "vnd", "Chi phí / chuyển đổi sâu", "Cost per deep conversion"),
+    ("time_attr_deep_convert_rate_v2", "pct", "Tỉ lệ chuyển đổi sâu", "Deep CVR"),
+    ("show_uv", "cnt", "Số người (unique) được tiếp cận", "Reach"),
+    ("cost_per_show_uv_mille", "vnd", "Chi phí cho 1.000 người tiếp cận", "Cost per 1,000 people reached"),
+    ("frequency", "ratio", "Tần suất = Impressions / Reach", "Frequency"),
+    ("convert_cnt", "cnt", "Số chuyển đổi (theo thời điểm hiển thị)", "Conversions"),
+    ("conversion_cost", "vnd", "Chi phí / chuyển đổi", "Cost per conversion"),
+    ("conversion_rate_imp", "pct", "Tỉ lệ chuyển đổi trên hiển thị", "CVR (impression)"),
+    ("effect_cnt", "cnt", "Kết quả", "Results"),
+    ("effect_cost", "vnd", "Chi phí / kết quả", "Cost per result"),
+    ("effect_rate", "pct", "Tỉ lệ kết quả", "Result rate"),
+    ("total_play", "cnt", "Lượt xem video", "Video views"),
+    ("play_duration_2s", "cnt", "Lượt xem ≥ 2 giây", "2-second video views"),
+    ("play_duration_6s", "cnt", "Lượt xem ≥ 6 giây", "6-second video views"),
+    ("play_over", "cnt", "Lượt xem hết 100% video", "Video views at 100%"),
+    ("play_third_quartile", "cnt", "Lượt xem hết 75% video", "Video views at 75%"),
+    ("play_midpoint", "cnt", "Lượt xem hết 50% video", "Video views at 50%"),
+    ("play_first_quartile", "cnt", "Lượt xem hết 25% video", "Video views at 25%"),
+    ("stat_total_play_rate", "pct", "Lượt xem / hiển thị", "Video view rate"),
+    ("stat_play_duration_2s_rate", "pct", "Tỉ lệ xem ≥ 2s / hiển thị", "2-second view rate"),
+    ("stat_play_duration_6s_rate", "pct", "Tỉ lệ xem ≥ 6s / hiển thị", "6-second view rate"),
+    ("stat_play_first_quartile_rate", "pct", "Tỉ lệ xem hết 25% / hiển thị", "25% view rate"),
+    ("stat_play_midpoint_rate", "pct", "Tỉ lệ xem hết 50% / hiển thị", "50% view rate"),
+    ("stat_play_third_quartile_rate", "pct", "Tỉ lệ xem hết 75% / hiển thị", "75% view rate"),
+    ("stat_play_over_rate", "pct", "Tỉ lệ xem hết 100% / hiển thị", "100% view rate"),
+    ("total_engagement_rate", "pct", "Tỉ lệ tương tác tổng (like, comment, share, follow…)", "Engagement rate"),
+    # 5 cột thêm 19/10/2026
+    ("average_video_play", "ratio", "Thời gian xem trung bình mỗi lượt xem video (giây)", "Average play time per video view"),
+    ("ad_net_like", "cnt", "Lượt thích từ quảng cáo", "Likes"),
+    ("ad_comment", "cnt", "Bình luận từ quảng cáo", "Comments"),
+    ("ad_share", "cnt", "Chia sẻ từ quảng cáo", "Shares"),
+    ("ad_net_favorite", "cnt", "Lượt lưu (favorite) từ quảng cáo", "Favorites"),
+    # 14 cột thêm 02/11/2026. Nhóm (TikTok) là sự kiện mua hàng trên TikTok ngoài TikTok Shop (API: nonshop_onsite)
+    ("time_attr_nonshop_onsite_shopping_per_click", "pct", "Tỉ lệ mua hàng trên TikTok / click", "Purchase rate (TikTok)"),
+    ("time_attr_nonshop_onsite_shopping", "cnt", "Lượt mua hàng trên TikTok", "Purchases (TikTok)"),
+    ("time_attr_total_nonshop_onsite_shopping_value", "vnd", "Giá trị mua hàng trên TikTok", "Purchase value (TikTok)"),
+    ("time_attr_nonshop_onsite_initiate_checkout_count_per_click", "pct", "Tỉ lệ bắt đầu thanh toán trên TikTok / click",
+     "Checkout initiation rate (TikTok)"),
+    ("time_attr_nonshop_onsite_initiate_checkout_count", "cnt", "Lượt bắt đầu thanh toán trên TikTok",
+     "Checkouts initiated (TikTok)"),
+    ("time_attr_total_nonshop_onsite_initiate_checkout_count_value", "vnd", "Giá trị bắt đầu thanh toán trên TikTok",
+     "Checkout initiation value (TikTok)"),
+    ("time_attr_nonshop_onsite_on_web_cart_per_click", "pct", "Tỉ lệ thêm vào giỏ trên TikTok / click",
+     "Add to cart rate (TikTok)"),
+    ("time_attr_nonshop_onsite_on_web_cart", "cnt", "Lượt thêm vào giỏ trên TikTok", "Adds to cart (TikTok)"),
+    ("time_attr_total_nonshop_onsite_on_web_cart_value", "vnd", "Giá trị thêm vào giỏ trên TikTok", "Add to cart value (TikTok)"),
+    ("time_attr_nonshop_onsite_shopping_roas", "ratio", "ROAS mua hàng trên TikTok = giá trị mua / chi phí",
+     "Purchases ROAS (TikTok)"),
+    ("time_attr_total_repetitive_in_app_detail_uv_value", "vnd", "Giá trị xem nội dung trong app", "Content view value (app)"),
+    ("time_attr_total_omni_detail_value", "vnd", "Tổng giá trị xem nội dung (mọi kênh)",
+     "Total view content value (all-channels)"),
+    ("time_attr_total_on_web_detail_standardized_value", "vnd", "Giá trị xem nội dung trên website",
+     "Content view value (website)"),
+    ("time_attr_total_offline_detail_value", "vnd", "Giá trị xem nội dung offline", "Content view value (offline)"),
+]
+BQ_TYPE = {"vnd": "NUMERIC", "cnt": "INTEGER", "pct": "FLOAT", "ratio": "FLOAT"}
+UNIT = {"vnd": " (VND)", "pct": " (dạng thập phân, 0.0225 = 2,25%)"}
+
+
+def col_name(label):
+    """Tên cột BigQuery = tên cột trên TikTok Ads bỏ ký tự đặc biệt, viết thường, nối bằng '_'.
+    Vd 'CTR (destination)' -> ctr_destination, 'Cost per 1,000 people reached' -> cost_per_1000_people_reached."""
+    return re.sub(r"[^0-9A-Za-z]+", "_", label.replace(",", "")).strip("_").lower()
+
+
+COL = {k: col_name(ui) for k, _, _, ui in METRICS}  # tên API -> tên cột BigQuery
+assert len(set(COL.values())) == len(COL), "trùng tên cột"
+
+# Mã trạng thái đã đối chiếu với giao diện TikTok Ads; mã khác sẽ ghi "Khác (mã X)".
+PLATFORM_STATUS = {"5": "Active", "2": "Not delivered", "7": "Paused"}
+OPT_STATUS = {"0": "Bật", "1": "Tắt"}
 # Không truyền filters = mọi trạng thái kể cả đã xóa (bộ lọc "999" của giao diện bỏ creative đã xóa).
-STATUS = {**t.PLATFORM_STATUS, "8": "Deleted"}
+STATUS = {**PLATFORM_STATUS, "8": "Deleted"}
 
 F = bigquery.SchemaField
 SCHEMA = [
@@ -53,10 +167,47 @@ SCHEMA = [
                                       "tại lần kéo dữ liệu gần nhất của ngày đó"),
     F("status", "STRING", description="Cột Status trên TikTok Ads: Active / Not delivered / Paused / Deleted "
                                       "(API creative_platform_status), tại lần kéo dữ liệu gần nhất của ngày đó"),
-] + [f for f in t.SCHEMA if f.name in t.COL.values()]  # 63 cột chỉ số: cùng tên, kiểu, mô tả với bảng campaign
+] + [F(COL[k], BQ_TYPE[kind], description=f"{vi}{UNIT.get(kind, '')}. TikTok Ads: {ui}. API: {k}")
+     for k, kind, vi, ui in METRICS]  # 63 cột chỉ số: cùng tên, kiểu, mô tả với bảng campaign
 
 
 RETRY_WAITS = [10, 30, 60, 120]  # giây; TikTok thỉnh thoảng trả code 1300400001 "Couldn't load" khi gọi liên tục
+
+
+class TikTokAuthError(RuntimeError):
+    pass
+
+
+# ---------------------------------------------------------------- TikTok
+def read_cookie():
+    """Cookie TikTok Ads từ env TIKTOK_COOKIE (GitHub Actions: secret COOKIE_ADS) — cả chuỗi cookie của trình duyệt,
+    có hoặc không chữ 'cookie:' ở đầu, dạng copy từ "Copy as cURL (cmd)" (có dấu ^) cũng được."""
+    raw = os.environ.get(ENV_COOKIE, "").strip()
+    if not raw:
+        raise SystemExit(f"[CONFIG] env {ENV_COOKIE} trống — GitHub Actions: map từ secret COOKIE_ADS")
+    if "^" in raw:  # chuỗi copy từ "Copy as cURL (cmd)"
+        raw = re.sub(r"\^(.)", r"\1", raw)
+    raw = re.sub(r"^(cookie:\s*)", "", raw, flags=re.I).strip().strip('"')
+    return raw.replace("\r", "").replace("\n", "")
+
+
+def api_request(cookie):
+    """(url, headers) gọi API thống kê của ADVERTISER_ID; header x-csrftoken = cookie csrftoken (thiếu là bị từ chối)."""
+    m = re.search(r"(?:^|;\s*)csrftoken=([^;\s]+)", cookie)
+    if not m:
+        raise SystemExit("[CONFIG] cookie trong secret COOKIE_ADS thiếu csrftoken — API thống kê cần cả chuỗi cookie: "
+                         "copy lại toàn bộ giá trị cookie của request campaign/list rồi cập nhật secret")
+    url = f"{API_URL}?aadvid={ADVERTISER_ID}&req_src=bidding"
+    headers = {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json; charset=UTF-8",
+        "origin": "https://ads.tiktok.com",
+        "referer": f"https://ads.tiktok.com/i18n/manage/campaign?aadvid={ADVERTISER_ID}",
+        "user-agent": USER_AGENT,
+        "cookie": cookie,
+        "x-csrftoken": m.group(1),
+    }
+    return url, headers
 
 
 def post_with_retry(session, url, headers, body):
@@ -66,7 +217,7 @@ def post_with_retry(session, url, headers, body):
         try:
             r = session.post(url, headers=headers, data=data, timeout=60)
             if r.status_code in (401, 403):
-                raise t.TikTokAuthError(f"HTTP {r.status_code}")
+                raise TikTokAuthError(f"HTTP {r.status_code}")
             r.raise_for_status()
             j = r.json()
             if j.get("code") == 0:
@@ -75,7 +226,7 @@ def post_with_retry(session, url, headers, body):
         except (requests.RequestException, ValueError) as e:
             err = f"{type(e).__name__}: {str(e)[:200]}"
         if wait is None:
-            raise t.TikTokAuthError(f"{err} (sau {attempt} lần thử)")
+            raise TikTokAuthError(f"{err} (sau {attempt} lần thử)")
         print(f"    lỗi tạm ({err}), thử lại sau {wait}s", flush=True)
         time.sleep(wait)
 
@@ -109,9 +260,22 @@ def video_id(cr):
         return None
 
 
+def conv(v, kind):
+    if v in (None, "", "-"):
+        return None
+    f = float(v)
+    if kind == "pct":
+        return round(f / 100, 10)
+    if kind == "vnd":
+        return str(int(f)) if f.is_integer() else str(f)  # NUMERIC: gửi dạng chuỗi cho chính xác
+    if kind == "cnt":
+        return int(f)
+    return f
+
+
 def to_bq_row(cr, day, advertiser_id):
     rd = cr["row_data"]
-    missing = [k for k, *_ in t.METRICS if k not in rd]
+    missing = [k for k, *_ in METRICS if k not in rd]
     if missing:
         raise RuntimeError(f"API không trả các cột {missing} cho creative {cr['creative_id']}")
     src = " · ".join(s for s in (rd.get("material_primary_source"), rd.get("material_secondary_source")) if s)
@@ -127,14 +291,30 @@ def to_bq_row(cr, day, advertiser_id):
         "video_id": video_id(cr),
         "post_text": cr.get("creative_post_name") if cr.get("creative_post_name") not in (None, "", "-") else None,
         "source": src or None,
-        "on_off": t.OPT_STATUS.get(str(cr.get("creative_opt_status")), str(cr.get("creative_opt_status"))),
+        "on_off": OPT_STATUS.get(str(cr.get("creative_opt_status")), str(cr.get("creative_opt_status"))),
         "status": STATUS.get(rd.get("creative_platform_status"), f"Khác (mã {rd.get('creative_platform_status')})"),
     }
-    row.update({t.COL[k]: t.conv(rd[k], kind) for k, kind, *_ in t.METRICS})
+    row.update({COL[k]: conv(rd[k], kind) for k, kind, *_ in METRICS})
     return row
 
 
 # ---------------------------------------------------------------- BigQuery
+def bq_client():
+    """Giống các job khác trong repo: JSON inline GOOGLE_SERVICE_ACCOUNT_JSON -> ADC (gcloud / key file)."""
+    project = TABLE.split(".")[0]
+    key_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    if not key_json:
+        print("[BQ] credentials: ADC của máy (gcloud)", flush=True)
+        return bigquery.Client(project=project)
+    from google.oauth2 import service_account
+    try:
+        info = json.loads(key_json)
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"[BQ] GOOGLE_SERVICE_ACCOUNT_JSON không phải JSON hợp lệ: {e}")
+    print(f"[BQ] credentials: GOOGLE_SERVICE_ACCOUNT_JSON ({info.get('client_email', '?')})", flush=True)
+    return bigquery.Client(project=project, credentials=service_account.Credentials.from_service_account_info(info))
+
+
 def ensure_table(client):
     table = bigquery.Table(TABLE, schema=SCHEMA)
     table.time_partitioning = bigquery.TimePartitioning(type_=bigquery.TimePartitioningType.DAY, field="report_date")
@@ -190,8 +370,8 @@ def write_excel(rows, path):
             ("adgroup_name", "Ad group name", None), ("ad_id", "Ad ID", "@"), ("ad_name", "Ad name", None),
             ("video_id", "Video ID", "@"), ("post_text", "Post text", None), ("source", "Source", None),
             ("on_off", "On/Off", None), ("status", "Status", None)]
-    cols += [(t.COL[k], ui, fmt[kind]) for k, kind, _, ui in t.METRICS]
-    vnd_cols = {t.COL[k] for k, kind, *_ in t.METRICS if kind == "vnd"}
+    cols += [(COL[k], ui, fmt[kind]) for k, kind, _, ui in METRICS]
+    vnd_cols = {COL[k] for k, kind, *_ in METRICS if kind == "vnd"}
     wide = {"Campaign name": 32, "Ad group name": 28, "Ad name": 45, "Post text": 45, "Video ID": 36}
     wb = Workbook()
     ws = wb.active
@@ -213,6 +393,20 @@ def write_excel(rows, path):
 
 
 # ---------------------------------------------------------------- main
+def date_range(args):
+    if args.start or args.end:
+        start = date.fromisoformat(args.start or args.end)
+        end = date.fromisoformat(args.end or args.start)
+    else:
+        end = datetime.now(VN_TZ).date()
+        start = end - timedelta(days=args.days - 1)
+    if start > end:
+        raise SystemExit("--start phải <= --end")
+    if (end - start).days > 92:
+        raise SystemExit("Mỗi lần chạy tối đa 93 ngày")
+    return start, end
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--days", type=int, default=DAYS, help=f"số ngày gần nhất tính cả hôm nay (mặc định {DAYS})")
@@ -222,17 +416,17 @@ def main():
     p.add_argument("--excel", help="ghi ra file Excel này thay vì BigQuery")
     args = p.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
-    start, end = t.date_range(args)
+    start, end = date_range(args)
 
-    url, headers = t.api_request(t.read_cookie())
-    base_body, advertiser_id = t.BASE_BODY, t.ADVERTISER_ID
+    url, headers = api_request(read_cookie())
+    base_body, advertiser_id = BASE_BODY, ADVERTISER_ID
     print(f"Advertiser {advertiser_id} | {start} -> {end} | bảng {TABLE}")
     session = requests.Session()
     rows, day = [], start
     try:
         while day <= end:
             creatives = fetch_all(session, url, headers, base_body, day, "creative",
-                                  [m[0] for m in t.METRICS] + EXTRA_METRICS)
+                                  [m[0] for m in METRICS] + EXTRA_METRICS)
             camps = fetch_all(session, url, headers, base_body, day, "campaign", ["stat_cost"])
             day_rows = sorted((to_bq_row(c, day, advertiser_id) for c in creatives),
                               key=lambda r: -float(r["cost"] or 0))
@@ -246,7 +440,7 @@ def main():
                 raise SystemExit(f"Chi phí ngày {day} lệch cấp campaign — dừng, không ghi")
             rows += day_rows
             day += timedelta(days=1)
-    except t.TikTokAuthError as e:
+    except TikTokAuthError as e:
         print(f"::error::TikTok từ chối request ({e}). Cookie có thể đã hết hạn: copy lại cookie của request "
               "campaign/list và cập nhật secret COOKIE_ADS.", file=sys.stderr)
         sys.exit(2)
@@ -262,7 +456,7 @@ def main():
         print(f"Chạy thử: {len(rows)} dòng × {len(SCHEMA)} cột, chưa ghi BigQuery (thêm --write để ghi).")
         print(json.dumps(rows[0], ensure_ascii=False, indent=1))
         return
-    client = t.bq_client()
+    client = bq_client()
     ensure_table(client)
     deleted, inserted = replace_range(client, rows, start, end, advertiser_id)
     print(f"BigQuery: xóa {deleted} dòng cũ, chèn {inserted} dòng mới ({start} -> {end})")
