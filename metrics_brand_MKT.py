@@ -13,6 +13,7 @@
 
 # Cột campaign_reach = Reach của cả campaign trong ngày (lấy ở tab Campaign, cùng lượt gọi kiểm chi phí): Reach không cộng
 # từ creative được, báo cáo cấp campaign dùng cột này.
+# 12 cột cuối (thêm 05/11/2026, sau campaign_reach): nhóm Product details page view — 7 cột bản (TikTok) + 5 cột bản Shop.
 
 # Lấy creative ở mọi trạng thái, kể cả đã xóa (Deleted). Mỗi lần chạy: xóa rồi nạp lại 5 ngày gần nhất
 # (hôm nay + 4 ngày trước, giờ VN) trong 1 transaction; --start/--end để chạy khoảng ngày khác.
@@ -43,7 +44,7 @@
 # # ---------------------------------------------------------------- Cấu hình chung (giữ giống tiktok_ads_to_bq.py)
 # VN_TZ = timezone(timedelta(hours=7))
 # ENV_COOKIE = "TIKTOK_COOKIE"  # GitHub Actions: map từ secret COOKIE_ADS
-# ADVERTISER_ID = os.environ.get("TIKTOK_ADVERTISER_ID", "7625589331687948309")  # aadvid trên URL Ads Manager
+# ADVERTISER_ID = os.environ.get("TIKTOK_ADVERTISER_ID", "7628879252477231124")  # aadvid trên URL Ads Manager 7625589331687948309
 # API_URL = "https://ads.tiktok.com/api/v4/i18n/statistics/op/campaign/list/"
 # USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
 #               "Chrome/156.0.0.0 Safari/537.36")
@@ -133,6 +134,37 @@
 #      "Content view value (website)"),
 #     ("time_attr_total_offline_detail_value", "vnd", "Giá trị xem nội dung offline", "Content view value (offline)"),
 # ]
+# # 12 cột thêm 05/11/2026 (nhóm Product details page view), nằm SAU campaign_reach vì BigQuery thêm cột vào cuối bảng.
+# # Bản (TikTok) (API nonshop_onsite_*) = trang sản phẩm trên TikTok ngoài TikTok Shop: đủ 7 cột như dòng chọn cột trên
+# # Ads Manager. Bản Shop (API onsite_*) = trang sản phẩm trong TikTok Shop: API chỉ có 5 cột (không có unique / cost per
+# # unique). 11/2026: bản TikTok cả tài khoản = 0; bản Shop có lượt xem / tỉ lệ / chi phí, value trả "-" (ghi NULL).
+# METRICS_AFTER_REACH = [
+#     ("time_attr_unique_nonshop_onsite_on_web_detail", "cnt", "Số người (unique) xem trang chi tiết sản phẩm trên TikTok",
+#      "Unique product details page views (TikTok)"),
+#     ("time_attr_cost_per_unique_nonshop_onsite_on_web_detail", "vnd",
+#      "Chi phí / người xem trang chi tiết sản phẩm trên TikTok", "Cost per unique product details page view (TikTok)"),
+#     ("time_attr_nonshop_onsite_on_web_detail_per_click", "pct", "Lượt xem trang chi tiết sản phẩm trên TikTok / click",
+#      "Product details page view rate (TikTok)"),
+#     ("time_attr_nonshop_onsite_on_web_detail", "cnt", "Lượt xem trang chi tiết sản phẩm trên TikTok",
+#      "Product details page views (TikTok)"),
+#     ("time_attr_cost_per_nonshop_onsite_on_web_detail", "vnd", "Chi phí / lượt xem trang chi tiết sản phẩm trên TikTok",
+#      "Cost per product details page view (TikTok)"),
+#     ("time_attr_value_per_nonshop_onsite_on_web_detail", "vnd", "Giá trị / lượt xem trang chi tiết sản phẩm trên TikTok",
+#      "Value per product details page view (TikTok)"),
+#     ("time_attr_total_nonshop_onsite_on_web_detail_value", "vnd", "Giá trị xem trang chi tiết sản phẩm trên TikTok",
+#      "Product details page view value (TikTok)"),
+#     ("time_attr_onsite_on_web_detail_per_click", "pct", "Lượt xem trang chi tiết sản phẩm trên TikTok Shop / click",
+#      "Product details page view rate (Shop)"),
+#     ("time_attr_onsite_on_web_detail", "cnt", "Lượt xem trang chi tiết sản phẩm trên TikTok Shop",
+#      "Product details page views (Shop)"),
+#     ("time_attr_cost_per_onsite_on_web_detail", "vnd", "Chi phí / lượt xem trang chi tiết sản phẩm trên TikTok Shop",
+#      "Cost per product details page view (Shop)"),
+#     ("time_attr_value_per_onsite_on_web_detail", "vnd", "Giá trị / lượt xem trang chi tiết sản phẩm trên TikTok Shop",
+#      "Value per product details page view (Shop)"),
+#     ("time_attr_total_onsite_on_web_detail_value", "vnd", "Giá trị xem trang chi tiết sản phẩm trên TikTok Shop",
+#      "Product details page view value (Shop)"),
+# ]
+# ALL_METRICS = METRICS + METRICS_AFTER_REACH
 # BQ_TYPE = {"vnd": "NUMERIC", "cnt": "INTEGER", "pct": "FLOAT", "ratio": "FLOAT"}
 # UNIT = {"vnd": " (VND)", "pct": " (dạng thập phân, 0.0225 = 2,25%)"}
 
@@ -143,7 +175,7 @@
 #     return re.sub(r"[^0-9A-Za-z]+", "_", label.replace(",", "")).strip("_").lower()
 
 
-# COL = {k: col_name(ui) for k, _, _, ui in METRICS}  # tên API -> tên cột BigQuery
+# COL = {k: col_name(ui) for k, _, _, ui in ALL_METRICS}  # tên API -> tên cột BigQuery
 # assert len(set(COL.values())) == len(COL), "trùng tên cột"
 
 # # Mã trạng thái đã đối chiếu với giao diện TikTok Ads; mã khác sẽ ghi "Khác (mã X)".
@@ -170,14 +202,20 @@
 #                                       "tại lần kéo dữ liệu gần nhất của ngày đó"),
 #     F("status", "STRING", description="Cột Status trên TikTok Ads: Active / Not delivered / Paused / Deleted "
 #                                       "(API creative_platform_status), tại lần kéo dữ liệu gần nhất của ngày đó"),
-# ] + [F(COL[k], BQ_TYPE[kind], description=f"{vi}{UNIT.get(kind, '')}. TikTok Ads: {ui}. API: {k}")
-#      for k, kind, vi, ui in METRICS] + [  # 63 cột chỉ số: cùng tên, kiểu, mô tả với bảng campaign
+# ]
+
+
+# def metric_field(k, kind, vi, ui):
+#     return F(COL[k], BQ_TYPE[kind], description=f"{vi}{UNIT.get(kind, '')}. TikTok Ads: {ui}. API: {k}")
+
+
+# SCHEMA += [metric_field(*m) for m in METRICS] + [  # 63 cột chỉ số: cùng tên, kiểu, mô tả với bảng campaign cũ
 #     F("campaign_reach", "INTEGER",
 #       description="Reach của cả campaign trong ngày (tab Campaign trên TikTok Ads, API show_uv cấp campaign), lặp lại "
 #                   "trên mọi dòng creative của campaign. Reach không cộng từ creative được (1 người xem nhiều creative "
 #                   "bị đếm nhiều lần): tính Reach / Frequency / Cost per 1,000 people reached của campaign dùng cột này, "
 #                   "lấy 1 giá trị cho mỗi campaign × ngày."),
-# ]
+# ] + [metric_field(*m) for m in METRICS_AFTER_REACH]
 
 
 # RETRY_WAITS = [10, 30, 60, 120]  # giây; TikTok thỉnh thoảng trả code 1300400001 "Couldn't load" khi gọi liên tục
@@ -279,7 +317,7 @@
 #     prev = None
 #     for attempt in range(1, DAY_TRIES + 1):
 #         creatives = fetch_all(session, url, headers, base_body, day, "creative",
-#                               [m[0] for m in METRICS] + EXTRA_METRICS)
+#                               [m[0] for m in ALL_METRICS] + EXTRA_METRICS)
 #         camps = fetch_all(session, url, headers, base_body, day, "campaign", ["stat_cost", "show_uv"])
 #         cr, hi = round(cost_of(creatives)), round(cost_of(camps))
 #         lo = hi if prev is None else round(cost_of(prev))
@@ -319,7 +357,7 @@
 
 # def to_bq_row(cr, day, advertiser_id, campaign_reach):
 #     rd = cr["row_data"]
-#     missing = [k for k, *_ in METRICS if k not in rd]
+#     missing = [k for k, *_ in ALL_METRICS if k not in rd]
 #     if missing:
 #         raise RuntimeError(f"API không trả các cột {missing} cho creative {cr['creative_id']}")
 #     src = " · ".join(s for s in (rd.get("material_primary_source"), rd.get("material_secondary_source")) if s)
@@ -340,6 +378,7 @@
 #     }
 #     row.update({COL[k]: conv(rd[k], kind) for k, kind, *_ in METRICS})
 #     row["campaign_reach"] = campaign_reach.get(str(cr["campaign_id"]))
+#     row.update({COL[k]: conv(rd[k], kind) for k, kind, *_ in METRICS_AFTER_REACH})
 #     return row
 
 
@@ -415,8 +454,9 @@
 #             ("adgroup_name", "Ad group name", None), ("ad_id", "Ad ID", "@"), ("ad_name", "Ad name", None),
 #             ("video_id", "Video ID", "@"), ("post_text", "Post text", None), ("source", "Source", None),
 #             ("on_off", "On/Off", None), ("status", "Status", None)]
-#     cols += [(COL[k], ui, fmt[kind]) for k, kind, _, ui in METRICS] + [("campaign_reach", "Campaign reach", "#,##0")]
-#     vnd_cols = {COL[k] for k, kind, *_ in METRICS if kind == "vnd"}
+#     cols += ([(COL[k], ui, fmt[kind]) for k, kind, _, ui in METRICS] + [("campaign_reach", "Campaign reach", "#,##0")]
+#              + [(COL[k], ui, fmt[kind]) for k, kind, _, ui in METRICS_AFTER_REACH])
+#     vnd_cols = {COL[k] for k, kind, *_ in ALL_METRICS if kind == "vnd"}
 #     wide = {"Campaign name": 32, "Ad group name": 28, "Ad name": 45, "Post text": 45, "Video ID": 36}
 #     wb = Workbook()
 #     ws = wb.active
@@ -510,6 +550,20 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 """TikTok Ads cấp creative theo ngày -> BigQuery fact_tiktok_ads_creative (hoặc Excel).
 File chạy một mình, không cần file nào khác. Giống tab Ad trên Ads Manager ("Total of N creatives"):
 statistics/op/ad/list/ với dimensions = creative_id, mỗi ngày gọi st = et = ngày đó.
@@ -525,7 +579,9 @@ Tên cột theo giao diện: adgroup_id / adgroup_name = API ad_id / ad_name; ad
 
 Cột campaign_reach = Reach của cả campaign trong ngày (lấy ở tab Campaign, cùng lượt gọi kiểm chi phí): Reach không cộng
 từ creative được, báo cáo cấp campaign dùng cột này.
-12 cột cuối (thêm 05/11/2026, sau campaign_reach): nhóm Product details page view — 7 cột bản (TikTok) + 5 cột bản Shop.
+12 cột sau campaign_reach (thêm 05/11/2026): nhóm Product details page view — 7 cột bản (TikTok) + 5 cột bản Shop.
+2 cột cuối (thêm 09/11/2026): objective_type (mã mục tiêu campaign, API objective_type) + objective_name (tên mục tiêu —
+API chỉ trả mã, script đổi sang tên theo bảng OBJECTIVE; mã lạ ghi "Khác (mã X)").
 
 Lấy creative ở mọi trạng thái, kể cả đã xóa (Deleted). Mỗi lần chạy: xóa rồi nạp lại 5 ngày gần nhất
 (hôm nay + 4 ngày trước, giờ VN) trong 1 transaction; --start/--end để chạy khoảng ngày khác.
@@ -556,7 +612,7 @@ EXTRA_METRICS = ["creative_platform_status", "material_primary_source", "materia
 # ---------------------------------------------------------------- Cấu hình chung (giữ giống tiktok_ads_to_bq.py)
 VN_TZ = timezone(timedelta(hours=7))
 ENV_COOKIE = "TIKTOK_COOKIE"  # GitHub Actions: map từ secret COOKIE_ADS
-ADVERTISER_ID = os.environ.get("TIKTOK_ADVERTISER_ID", "7628879252477231124")  # aadvid trên URL Ads Manager 7625589331687948309
+ADVERTISER_ID = os.environ.get("TIKTOK_ADVERTISER_ID", "7625589331687948309")  # aadvid trên URL Ads Manager
 API_URL = "https://ads.tiktok.com/api/v4/i18n/statistics/op/campaign/list/"
 USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
               "Chrome/156.0.0.0 Safari/537.36")
@@ -695,6 +751,10 @@ PLATFORM_STATUS = {"5": "Active", "2": "Not delivered", "7": "Paused"}
 OPT_STATUS = {"0": "Bật", "1": "Tắt"}
 # Không truyền filters = mọi trạng thái kể cả đã xóa (bộ lọc "999" của giao diện bỏ creative đã xóa).
 STATUS = {**PLATFORM_STATUS, "8": "Deleted"}
+# Mã mục tiêu campaign (Advertising objective) -> tên trên TikTok Ads. API không trả tên; đối chiếu 09/11/2026 trên 2 tài
+# khoản: 5 = campaign tên mặc định "Phạm vi tiếp cận<giờ tạo>", tối ưu Reach / Consideration audience acquisition;
+# 9 = "Tương tác với cộng đồng…", tối ưu TikTok page visits; 1 = "CLICK TO LIVE…", tối ưu Click.
+OBJECTIVE = {"1": "Traffic", "5": "Reach", "9": "Community interaction"}
 
 F = bigquery.SchemaField
 SCHEMA = [
@@ -727,7 +787,15 @@ SCHEMA += [metric_field(*m) for m in METRICS] + [  # 63 cột chỉ số: cùng 
                   "trên mọi dòng creative của campaign. Reach không cộng từ creative được (1 người xem nhiều creative "
                   "bị đếm nhiều lần): tính Reach / Frequency / Cost per 1,000 people reached của campaign dùng cột này, "
                   "lấy 1 giá trị cho mỗi campaign × ngày."),
-] + [metric_field(*m) for m in METRICS_AFTER_REACH]
+] + [metric_field(*m) for m in METRICS_AFTER_REACH] + [
+    F("objective_type", "INTEGER",
+      description="Mã mục tiêu quảng cáo (Advertising objective) của campaign, API objective_type: 1 = Traffic "
+                  "(Lưu lượng truy cập), 5 = Reach (Phạm vi tiếp cận), 9 = Community interaction (Tương tác với cộng "
+                  "đồng). Cố định từ lúc tạo campaign, lặp trên mọi dòng creative của campaign."),
+    F("objective_name", "STRING",
+      description="Tên mục tiêu quảng cáo của campaign trên TikTok Ads (Traffic / Reach / Community interaction), "
+                  "script đổi từ objective_type vì API không trả tên; mã chưa biết ghi 'Khác (mã X)'."),
+]
 
 
 RETRY_WAITS = [10, 30, 60, 120]  # giây; TikTok thỉnh thoảng trả code 1300400001 "Couldn't load" khi gọi liên tục
@@ -891,6 +959,10 @@ def to_bq_row(cr, day, advertiser_id, campaign_reach):
     row.update({COL[k]: conv(rd[k], kind) for k, kind, *_ in METRICS})
     row["campaign_reach"] = campaign_reach.get(str(cr["campaign_id"]))
     row.update({COL[k]: conv(rd[k], kind) for k, kind, *_ in METRICS_AFTER_REACH})
+    ot = cr.get("objective_type")
+    ot = None if ot in (None, "", "-") else str(ot)
+    row["objective_type"] = int(ot) if ot is not None else None
+    row["objective_name"] = None if ot is None else OBJECTIVE.get(ot, f"Khác (mã {ot})")
     return row
 
 
@@ -965,7 +1037,8 @@ def write_excel(rows, path):
             ("campaign_name", "Campaign name", None), ("adgroup_id", "Ad group ID", "@"),
             ("adgroup_name", "Ad group name", None), ("ad_id", "Ad ID", "@"), ("ad_name", "Ad name", None),
             ("video_id", "Video ID", "@"), ("post_text", "Post text", None), ("source", "Source", None),
-            ("on_off", "On/Off", None), ("status", "Status", None)]
+            ("on_off", "On/Off", None), ("status", "Status", None),
+            ("objective_type", "Objective type", None), ("objective_name", "Objective", None)]
     cols += ([(COL[k], ui, fmt[kind]) for k, kind, _, ui in METRICS] + [("campaign_reach", "Campaign reach", "#,##0")]
              + [(COL[k], ui, fmt[kind]) for k, kind, _, ui in METRICS_AFTER_REACH])
     vnd_cols = {COL[k] for k, kind, *_ in ALL_METRICS if kind == "vnd"}
@@ -1059,3 +1132,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
