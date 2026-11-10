@@ -612,7 +612,7 @@ EXTRA_METRICS = ["creative_platform_status", "material_primary_source", "materia
 # ---------------------------------------------------------------- Cấu hình chung (giữ giống tiktok_ads_to_bq.py)
 VN_TZ = timezone(timedelta(hours=7))
 ENV_COOKIE = "TIKTOK_COOKIE"  # GitHub Actions: map từ secret COOKIE_ADS
-ADVERTISER_ID = os.environ.get("TIKTOK_ADVERTISER_ID", "7625589331687948309")  # aadvid trên URL Ads Manager
+ADVERTISER_ID = os.environ.get("TIKTOK_ADVERTISER_ID", "7628879252477231124")  # aadvid trên URL Ads Manager   7625589331687948309
 API_URL = "https://ads.tiktok.com/api/v4/i18n/statistics/op/campaign/list/"
 USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
               "Chrome/156.0.0.0 Safari/537.36")
