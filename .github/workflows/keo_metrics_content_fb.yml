@@ -1,4 +1,4 @@
-name: Meta Ads video -> BigQuery
+name: Metrics Content FB
 
 on:
   schedule:
