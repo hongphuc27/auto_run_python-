@@ -42,4 +42,4 @@ jobs:
           ARGS=(--write)
           if [ -n "$START" ]; then ARGS+=(--start "$START"); fi
           if [ -n "$END" ]; then ARGS+=(--end "$END"); fi
-          python -u meta_ads_video_to_bq.py "${ARGS[@]}"
+          python -u keo_metrics_content_fb.py "${ARGS[@]}"
