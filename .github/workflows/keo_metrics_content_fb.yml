@@ -1,12 +1,12 @@
-name: Metrics_Content_FB
+name: Meta Ads video -> BigQuery
 
 on:
   schedule:
-    - cron: "*/5 * * * *" # Chạy mỗi 5 phút
+    - cron: "23 0 * * *" # 07:23 giờ Việt Nam mỗi ngày (cron của GitHub tính theo UTC)
   workflow_dispatch:
     inputs:
       start:
-        description: "Ngày bắt đầu YYYY-MM-DD (để trống = 7 ngày gần nhất)"
+        description: "Ngày bắt đầu YYYY-MM-DD (để trống = 2 ngày gần nhất: hôm qua + hôm nay)"
         required: false
       end:
         description: "Ngày kết thúc YYYY-MM-DD (để trống = hôm nay)"
