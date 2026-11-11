@@ -12,17 +12,17 @@ Xác thực:
   - BigQuery: env GOOGLE_SERVICE_ACCOUNT_JSON (JSON inline), không có thì ADC của máy (gcloud).
               Service account cần quyền BigQuery Data Editor trên dataset rhysman + BigQuery Job User.
 
-GitHub Actions (.github/workflows/meta_ads_video_to_bq.yml, file .py để ở gốc repo):
-  secret META_ACCESS_TOKEN + GOOGLE_SERVICE_ACCOUNT_JSON -> env, chạy `python meta_ads_video_to_bq.py --write`.
+GitHub Actions (.github/workflows/meta_ads_video_to_bq.yml, file này để ở gốc repo):
+  secret META_ACCESS_TOKEN + GOOGLE_SERVICE_ACCOUNT_JSON -> env, chạy `python keo_metrics_content_fb.py --write`.
 
-Mỗi lần chạy: lấy 7 ngày gần nhất (hôm nay + 6 ngày trước, giờ VN); --start / --end để chọn khoảng khác.
+Mỗi lần chạy: lấy 2 ngày gần nhất (hôm nay + hôm qua, giờ VN); --start / --end để chọn khoảng khác.
 Mặc định CHỈ CHẠY THỬ (kéo + kiểm, in tóm tắt, không ghi gì). Ghi BigQuery phải thêm --write: xoá rồi nạp lại
 khoảng ngày đó của các tài khoản vừa kéo, trong 1 transaction.
 
-    python meta_ads_video_to_bq.py                                              # chạy thử 7 ngày gần nhất
-    python meta_ads_video_to_bq.py --start 2026-11-08 --end 2026-11-10 --excel thu.xlsx
-    python meta_ads_video_to_bq.py --write                                      # xoá + nạp lại 7 ngày gần nhất
-    python meta_ads_video_to_bq.py --start 2026-10-01 --end 2026-11-10 --write
+    python keo_metrics_content_fb.py                                              # chạy thử 2 ngày gần nhất
+    python keo_metrics_content_fb.py --start 2026-11-08 --end 2026-11-10 --excel thu.xlsx
+    python keo_metrics_content_fb.py --write                                      # xoá + nạp lại 2 ngày gần nhất
+    python keo_metrics_content_fb.py --start 2026-10-01 --end 2026-11-10 --write
 
 Số lượt video / thêm vào giỏ: Meta không trả trường khi bằng 0 -> ghi 0.
 """
@@ -45,7 +45,7 @@ ACCOUNTS = {
     "AKA_05": "1431105755606260",
     "AKA_06": "27368800846154436",
 }
-DAYS = 7
+DAYS = 2
 CHUNK_DAYS = 7
 VN = dt.timezone(dt.timedelta(hours=7))
 INSIGHT_FIELDS = [
