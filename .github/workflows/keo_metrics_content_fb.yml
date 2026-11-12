@@ -2,7 +2,7 @@ name: Metrics Content FB
 
 on:
   schedule:
-    - cron: "23 0 * * *" # 07:23 giờ Việt Nam mỗi ngày (cron của GitHub tính theo UTC)
+    - cron: "*/5 * * * *" # Chạy mỗi 5 phút
   workflow_dispatch:
     inputs:
       start:
