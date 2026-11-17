@@ -137,7 +137,7 @@ SUM_TAX = ["Thuế GTGT do TikTok Shop khấu trừ", "Thuế TNCN do TikTok Sho
 SUM_SHIPPING = ["Phí vận chuyển thực tế", "Phí vận chuyển trả hàng thực tế",
                 "Phí vận chuyển của khách hàng được hoàn lại", "Phí vận hành logistic"]
 SUM_SHIP_DISCOUNT = ["Chiết khấu phí vận chuyển của nền tảng", "Chi phí vận chuyển của khách hàng",
-                     "Hoàn tiền chương trình đảm bảo", "Trợ cấp giao hàng không thành công", "Trợ giá vận chuyển"]]
+                     "Hoàn tiền chương trình đảm bảo", "Trợ cấp giao hàng không thành công", "Trợ giá vận chuyển"]
 SUM_OTHER_SVC = ["Phí dịch vụ SFP", "Phí dịch vụ hoàn tiền thưởng",
                  "Phí dịch vụ Ưu đãi đặc biệt trên LIVE", "Phí dịch vụ Chương trình EAMS",
                  "Phí dịch vụ Flash Sale", "Phí chương trình TikTok PayLater",
