@@ -136,11 +136,11 @@ SUM_TAX = ["Thuế GTGT do TikTok Shop khấu trừ", "Thuế TNCN do TikTok Sho
 SUM_SHIPPING = ["Phí vận chuyển thực tế", "Phí vận chuyển trả hàng thực tế",
                 "Phí vận chuyển của khách hàng được hoàn lại", "Phí vận hành logistic"]
 SUM_SHIP_DISCOUNT = ["Chiết khấu phí vận chuyển của nền tảng", "Chi phí vận chuyển của khách hàng",
-                     "Guarantee program reimbursement", "Trợ cấp giao hàng không thành công", "Trợ giá vận chuyển"]
+                     "Hoàn tiền chương trình đảm bảo", "Trợ cấp giao hàng không thành công", "Trợ giá vận chuyển"]
 SUM_OTHER_SVC = ["Phí dịch vụ SFP", "Phí dịch vụ hoàn tiền thưởng",
                  "Phí dịch vụ Ưu đãi đặc biệt trên LIVE", "Phí dịch vụ Chương trình EAMS",
                  "Phí dịch vụ Flash Sale", "Phí chương trình TikTok PayLater",
-                 "Phí nguồn lực chiến dịch", "SFR service fee", "Voucher GMV Max",
+                 "Phí nguồn lực chiến dịch", "Phí dịch vụ SFR", "Voucher GMV Max",
                  "Gói dịch vụ được quản lý (thuế bán hàng)", "Gói dịch vụ được quản lý (phí mỗi đơn hàng)",
                  "Phí quảng cáo GMV Max", "Tiền cọc hoa hồng liên kết", "Hoàn hoa hồng liên kết"]
 
@@ -187,7 +187,7 @@ EXPECTED_HEADERS = [
     "Chiết khấu phí vận chuyển của nền tảng",
     "Chi phí vận chuyển của khách hàng",
     "Phí vận chuyển trả hàng thực tế",
-    "Phí vận chuyển của khách hàng được hoàn lại", "Guarantee program reimbursement",
+    "Phí vận chuyển của khách hàng được hoàn lại", "Hoàn tiền chương trình đảm bảo",
     "Trợ cấp giao hàng không thành công", "Trợ giá vận chuyển", "Phí vận hành logistic", "Hoa hồng liên kết",
     "Hoa hồng liên kết trước thuế TNCN (thuế thu nhập cá nhân)", "Thuế TNCN đã khấu trừ",
     "Hoa hồng liên kết Quảng cáo cửa hàng", "Hoa hồng của Quảng cáo cửa hàng liên kết trước thuế TNCN",
@@ -197,7 +197,7 @@ EXPECTED_HEADERS = [
     "Phí dịch vụ hoàn tiền thưởng", "Phí dịch vụ Ưu đãi đặc biệt trên LIVE",
     "Phí dịch vụ Voucher Xtra", "Phí xử lý đơn hàng", "Phí dịch vụ Chương trình EAMS",
     "Phí dịch vụ Flash Sale", "Thuế GTGT do TikTok Shop khấu trừ", "Thuế TNCN do TikTok Shop khấu trừ",
-    "Phí chương trình TikTok PayLater", "Phí nguồn lực chiến dịch", "SFR service fee",
+    "Phí chương trình TikTok PayLater", "Phí nguồn lực chiến dịch", "Phí dịch vụ SFR",
     "Voucher GMV Max", "Thuế bán hàng của voucher GMV Max", "Gói dịch vụ được quản lý (thuế bán hàng)",
     "Gói dịch vụ được quản lý (phí mỗi đơn hàng)", "Phí quảng cáo GMV Max", "Số tiền điều chỉnh",
     "ID đơn hàng liên quan", "Khách thanh toán", "Tiền hoàn của khách",
